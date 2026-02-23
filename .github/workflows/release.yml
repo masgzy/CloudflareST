@@ -160,7 +160,7 @@ jobs:
           # 添加所有 .sh 文件（排除 cfst_hosts.sh 和 cfst_hosts_mac.sh）
           for f in script/*.sh; do
             fname=$(basename "$f")
-            if [[ "$fname" != "cfst_hosts.sh" && "$fname" != "cfst_hosts_mac.sh" ]]; then
+            if "$fname" != "cfst_hosts_mac.sh"; then
               cp "$f" release/
             fi
           done
