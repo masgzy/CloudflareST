@@ -1,0 +1,7 @@
+\x1b[34;1m# CloudflareST\x1b[0m
+本项目基于开源项目XIU2/CloudflareSpeedTest 修改。感谢原作者XIU2的贡献
+项目地址:https://github.com/XIU2/CloudflareSpeedTest
+本项目使用GPL3.0协议开源
+GitHub地址:https://github.com/masgzy/CloudflareST
+本项目也借鉴了GuangYu-yu/CloudflareST-Rust的部分设计
+项目github地址:https://github.com/GuangYu-yu/CloudflareST-Rust

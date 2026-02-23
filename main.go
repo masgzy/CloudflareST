@@ -1,28 +1,39 @@
 package main
 
 import (
+	_ "embed"
 	"flag"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/XIU2/CloudflareSpeedTest/task"
 	"github.com/XIU2/CloudflareSpeedTest/utils"
 )
 
+//go:embed license.txt
+var licenseContent string
+
 var (
 	version, versionNew string
 )
 
 func init() {
+    data, err := os.ReadFile("version.txt")
+    if err != nil {
+        log.Fatal(err)
+    }
+    version = string(data)
 	var printVersion bool
 	var help = `
 CloudflareSpeedTest ` + version + `
+本项目基于XIU2/CloudflareSpeedTest进行修改，使用GPL3.0协议开源
 测试各个 CDN 或网站所有 IP 的延迟和速度，获取最快 IP (IPv4+IPv6)！
-https://github.com/XIU2/CloudflareSpeedTest
+https://github.com/masgzy/CloudflareST
 
 参数：
     -n 200
@@ -134,9 +145,12 @@ https://github.com/XIU2/CloudflareSpeedTest
 }
 
 func main() {
+	// 首次运行检测，输出 license 内容
+	checkFirstRun()
+
 	task.InitRandSeed() // 置随机数种子
 
-	fmt.Printf("\x1b[34;1m# CloudflareSpeedTest\x1b[0m %s\n", version)
+	fmt.Printf("\x1b[34;1m# CloudflareST\x1b[0m %s\n", version)
 
 	// 开始延迟测速 + 过滤延迟/丢包
 	pingData := task.NewPing().Run().FilterDelay().FilterLossRate()
@@ -155,6 +169,19 @@ func endPrint() {
 	if runtime.GOOS == "windows" { // 如果是 Windows 系统，则需要按下 回车键 或 Ctrl+C 退出（避免通过双击运行时，测速完毕后直接关闭）
 		fmt.Printf("按下 回车键 或 Ctrl+C 退出。")
 		fmt.Scanln()
+	}
+}
+
+// 首次运行检测，输出 license 内容并删除标记文件
+func checkFirstRun() {
+	firstRunFile := ".first_run"
+	if _, err := os.Stat(firstRunFile); err == nil {
+		// .first_run 文件存在，输出 license 内容（支持 ANSI 彩色转义）
+		// 处理 ANSI 转义序列，将 \x1b 替换为实际转义字符
+		content := strings.ReplaceAll(licenseContent, "\\x1b", "\x1b")
+		fmt.Println(content)
+		// 删除 .first_run 文件
+		os.Remove(firstRunFile)
 	}
 }
 
