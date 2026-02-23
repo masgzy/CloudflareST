@@ -126,6 +126,7 @@ jobs:
           cp script/*.bat release/
           cp -r txt/win/* release/
           cp ip.txt ipv6.txt release/
+          touch release/.first_run
           cd release
           zip -r ../${{ steps.set_name.outputs.ARCHIVE_NAME }} .
 
@@ -146,6 +147,7 @@ jobs:
           done
           cp -r txt/mac/* release/
           cp ip.txt ipv6.txt release/
+          touch release/.first_run
           cd release
           zip -r ../${{ steps.set_name.outputs.ARCHIVE_NAME }} .
 
@@ -164,6 +166,7 @@ jobs:
           done
           cp -r txt/linux/* release/
           cp ip.txt ipv6.txt release/
+          touch release/.first_run
           cd release
           tar -czvf ../${{ steps.set_name.outputs.ARCHIVE_NAME }} .
 
@@ -237,6 +240,7 @@ jobs:
           cp script/*.bat release/
           cp -r txt/win/* release/
           cp ip.txt ipv6.txt release/
+          touch release/.first_run
           cd release
           zip -r ../${{ steps.set_name.outputs.ARCHIVE_NAME }} .
 
@@ -257,6 +261,7 @@ jobs:
           done
           cp -r txt/mac/* release/
           cp ip.txt ipv6.txt release/
+          touch release/.first_run
           cd release
           zip -r ../${{ steps.set_name.outputs.ARCHIVE_NAME }} .
 
