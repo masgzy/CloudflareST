@@ -24,10 +24,10 @@ var (
 
 func init() {
     data, err := os.ReadFile("version.txt")
-    if err != nil {
-        log.Fatal(err)
+    if err == nil {
+        version = string(data)
     }
-    version = string(data)
+
 	var printVersion bool
 	var help = `
 CloudflareSpeedTest ` + version + `
