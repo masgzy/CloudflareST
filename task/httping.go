@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/XIU2/CloudflareSpeedTest/utils"
@@ -20,9 +21,9 @@ var (
 	HttpingStatusCode     int
 	HttpingCFColo         string
 	HttpingCFColomap      *sync.Map
-	RegexpColoIATACode    = regexp.MustCompile(`[A-Z]{3}`)  // 匹配 IATA 机场地区码（俗称 机场三字码）的正则表达式
-	RegexpColoCountryCode = regexp.MustCompile(`[A-Z]{2}`)  // 匹配国家地区码的正则表达式（如 US、CN、UK 等）
-	RegexpColoGcore       = regexp.MustCompile(`^[a-z]{2}`) // 匹配城市地区码的正则表达式（小写，如 us、cn、uk 等）
+	RegexpColoIATACode    = regexp.MustCompile(`[A-Z]{3}`)  // 匹配 IATA 机场地区码的正则表达式
+	RegexpColoCountryCode = regexp.MustCompile(`[A-Z]{2}`)  // 匹配国家地区码的正则表达式
+	RegexpColoGcore       = regexp.MustCompile(`^[a-z]{2}`) // 匹配城市地区码的正则表达式（小写）
 )
 
 // pingReceived pingTotalTime
@@ -38,9 +39,13 @@ func (p *Ping) httping(ip *net.IPAddr) (int, time.Duration, string) {
 		},
 	}
 
-	// 先访问一次获得 HTTP 状态码 及 地区码
+	// 先访问一次获得 HTTP 状态码及地区码
 	var colo string
 	{
+		// 检查是否需要提前停止
+		if atomic.LoadInt32(&p.earlyStop) == 1 {
+			return 0, 0, ""
+		}
 		request, err := http.NewRequest(http.MethodHead, URL, nil)
 		if err != nil {
 			if utils.Debug { // 调试模式下，输出更多信息
@@ -58,7 +63,6 @@ func (p *Ping) httping(ip *net.IPAddr) (int, time.Duration, string) {
 		}
 		defer response.Body.Close()
 
-		//fmt.Println("IP:", ip, "StatusCode:", response.StatusCode, response.Request.URL)
 		// 如果未指定的 HTTP 状态码，或指定的状态码不合规，则默认只认为 200、301、302 才算 HTTPing 通过
 		if HttpingStatusCode == 0 || HttpingStatusCode < 100 && HttpingStatusCode > 599 {
 			if response.StatusCode != 200 && response.StatusCode != 301 && response.StatusCode != 302 {
@@ -70,7 +74,7 @@ func (p *Ping) httping(ip *net.IPAddr) (int, time.Duration, string) {
 		} else {
 			if response.StatusCode != HttpingStatusCode {
 				if utils.Debug { // 调试模式下，输出更多信息
-					utils.Red.Printf("[调试] IP: %s, 延迟测速终止，HTTP 状态码: %d, 指定的 HTTP 状态码 %d, 测速地址: %s\n", ip.String(), response.StatusCode, HttpingStatusCode, URL)
+					utils.Red.Printf("[调试] IP: %s, 延迟测速终止，HTTP 状态码: %d, 指定的 HTTP 状态码: %d, 测速地址: %s\n", ip.String(), response.StatusCode, HttpingStatusCode, URL)
 				}
 				return 0, 0, ""
 			}
@@ -98,9 +102,13 @@ func (p *Ping) httping(ip *net.IPAddr) (int, time.Duration, string) {
 	success := 0
 	var delay time.Duration
 	for i := 0; i < PingTimes; i++ {
+		// 在每次请求前检查是否需要提前停止
+		if atomic.LoadInt32(&p.earlyStop) == 1 {
+			return success, delay, colo
+		}
 		request, err := http.NewRequest(http.MethodHead, URL, nil)
 		if err != nil {
-			log.Fatal("意外的错误，情报告：", err)
+			log.Fatal("意外的错误，请报告：", err)
 			return 0, 0, ""
 		}
 		request.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/98.0.4758.80 Safari/537.36")
@@ -126,7 +134,7 @@ func MapColoMap() *sync.Map {
 	if HttpingCFColo == "" {
 		return nil
 	}
-	// 将 -cfcolo 参数指定的地区地区码转为大写并格式化
+	// 将 -cfcolo 参数指定的地区码转为大写并格式化
 	colos := strings.Split(strings.ToUpper(HttpingCFColo), ",")
 	colomap := &sync.Map{}
 	for _, colo := range colos {
@@ -135,7 +143,7 @@ func MapColoMap() *sync.Map {
 	return colomap
 }
 
-// 从响应头中获取 地区码 值
+// 从响应头中获取地区码
 func getHeaderColo(header http.Header) (colo string) {
 	if header.Get("server") != "" {
 		// 如果是 Cloudflare CDN
@@ -146,9 +154,9 @@ func getHeaderColo(header http.Header) (colo string) {
 				return RegexpColoIATACode.FindString(colo)
 			}
 		}
-		// 如果是 CDN77 CDN（测试地址 https://www.cdn77.com
+		// 如果是 CDN77 CDN
 		// server: CDN77-Turbo
-		// x-77-pop: losangelesUSCA // 美国的会显示为 USCA 不知道什么情况，暂时没做兼容，只提取 US
+		// x-77-pop: losangelesUSCA
 		// x-77-pop: frankfurtDE
 		// x-77-pop: amsterdamNL
 		// x-77-pop: singaporeSG
@@ -157,18 +165,18 @@ func getHeaderColo(header http.Header) (colo string) {
 				return RegexpColoCountryCode.FindString(colo)
 			}
 		}
-		// 如果是 Bunny CDN（测试地址 https://bunny.net
+		// 如果是 Bunny CDN
 		// server: BunnyCDN-TW1-1121
 		if colo = header.Get("server"); strings.Contains(colo, "BunnyCDN-") {
 			return RegexpColoCountryCode.FindString(strings.TrimPrefix(colo, "BunnyCDN-")) // 去掉 BunnyCDN- 前缀再去匹配
 		}
 	}
-	// 如果是 AWS CloudFront CDN（测试地址 https://d7uri8nf7uskq.cloudfront.net/tools/list-cloudfront-ips
+	// 如果是 AWS CloudFront CDN
 	// x-amz-cf-pop: SIN52-P1
 	if colo = header.Get("x-amz-cf-pop"); colo != "" {
 		return RegexpColoIATACode.FindString(colo)
 	}
-	// 如果是 Fastly CDN（测试地址 https://fastly.jsdelivr.net/gh/XIU2/CloudflareSpeedTest@master/go.mod
+	// 如果是 Fastly CDN
 	// x-served-by: cache-qpg1275-QPG
 	// x-served-by: cache-fra-etou8220141-FRA, cache-hhr-khhr2060043-HHR（最后一个为实际位置）
 	if colo = header.Get("x-served-by"); colo != "" {
@@ -176,7 +184,7 @@ func getHeaderColo(header http.Header) (colo string) {
 			return matches[len(matches)-1] // 因为 Fastly 的 x-served-by 可能包含多个地区码，所以只取最后一个
 		}
 	}
-	// Gcore CDN 的头部信息（注意均为城市代码而非国家代码），测试地址 https://assets.gcore.pro/assets/icons/shield-lock.svg
+	// Gcore CDN 的头部信息（注意均为城市代码而非国家代码）
 	// x-id-fe: fr5-hw-edge-gc17
 	// x-shard: fr5-shard0-default
 	// x-id: fr5-hw-edge-gc28
@@ -199,7 +207,7 @@ func (p *Ping) filterColo(colo string) string {
 	if HttpingCFColomap == nil {
 		return colo
 	}
-	// 匹配 机场地区码 是否为指定的地区
+	// 匹配机场地区码是否为指定的地区
 	_, ok := HttpingCFColomap.Load(colo)
 	if ok {
 		return colo

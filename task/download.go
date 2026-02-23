@@ -7,7 +7,7 @@ import (
 	"net"
 	"net/http"
 	"sort"
-	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/XIU2/CloudflareSpeedTest/utils"
@@ -17,7 +17,7 @@ import (
 
 const (
 	bufferSize                     = 1024
-	defaultURL                     = "https://cf.xiu2.xyz/url"
+	defaultURL                     = "https://download.parallels.com/desktop/v15/15.1.5-47309/ParallelsDesktop-15.1.5-47309.dmg"
 	defaultTimeout                 = 10 * time.Second
 	defaultDisableDownload         = false
 	defaultTestNum                 = 10
@@ -48,6 +48,14 @@ func checkDownloadDefault() {
 	}
 }
 
+// DownloadProgress 下载进度信息
+type DownloadProgress struct {
+	successCount int32 // 成功数量
+	failCount    int32 // 失败数量
+	totalCount   int32 // 总处理数量
+	currentSpeed int64 // 当前速度（字节/秒）
+}
+
 func TestDownloadSpeed(ipSet utils.PingDelaySet) (speedSet utils.DownloadSpeedSet) {
 	checkDownloadDefault()
 	if Disable {
@@ -65,30 +73,75 @@ func TestDownloadSpeed(ipSet utils.PingDelaySet) (speedSet utils.DownloadSpeedSe
 		TestCount = testNum
 	}
 
-	utils.Cyan.Printf("开始下载测速（下限：%.2f MB/s, 数量：%d, 队列：%d）\n", MinSpeed, TestCount, testNum)
-	// 控制 下载测速进度条 与 延迟测速进度条 长度一致（强迫症）
-	bar_a := len(strconv.Itoa(len(ipSet)))
-	bar_b := "     "
-	for i := 0; i < bar_a; i++ {
-		bar_b += " "
-	}
-	bar := utils.NewBar(TestCount, bar_b, "")
+	fmt.Printf("开始下载测速（下限：%.2f MB/s, 所需：%d, 队列：%d）\n", MinSpeed, TestCount, testNum)
+
+	// 创建进度跟踪器
+	progress := &DownloadProgress{}
+
+	// 创建进度条
+	bar := utils.NewDownloadBar(testNum)
+
+	// 启动进度更新协程
+	stopUpdate := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(100 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stopUpdate:
+				return
+			case <-ticker.C:
+				success := atomic.LoadInt32(&progress.successCount)
+				fail := atomic.LoadInt32(&progress.failCount)
+				done := int(atomic.LoadInt32(&progress.totalCount))
+				speed := atomic.LoadInt64(&progress.currentSpeed)
+				speedMB := float64(speed) / 1024 / 1024
+
+				// 更新进度条：显示 成功|失败(橙色) 进度条 速率(浅绿色)
+				msg := fmt.Sprintf("\x1b[33m%d|%d\x1b[0m", success, fail)
+				prefix := fmt.Sprintf("\x1b[92m%.2f\x1b[0m MB/s", speedMB)
+				bar.Update(done, msg, prefix)
+			}
+		}
+	}()
+
 	for i := 0; i < testNum; i++ {
-		speed, colo := downloadHandler(ipSet[i].IP)
+		// 检查是否已经凑够数量
+		if int(atomic.LoadInt32(&progress.successCount)) >= TestCount {
+			break
+		}
+
+		speed, colo := downloadHandlerWithProgress(ipSet[i].IP, progress)
 		ipSet[i].DownloadSpeed = speed
 		if ipSet[i].Colo == "" { // 只有当 Colo 是空的时候，才写入，否则代表之前是 httping 测速并获取过了
 			ipSet[i].Colo = colo
 		}
+
 		// 在每个 IP 下载测速后，以 [下载速度下限] 条件过滤结果
 		if speed >= MinSpeed*1024*1024 {
-			bar.Grow(1, "")
+			atomic.AddInt32(&progress.successCount, 1)
 			speedSet = append(speedSet, ipSet[i]) // 高于下载速度下限时，添加到新数组中
-			if len(speedSet) == TestCount {       // 凑够满足条件的 IP 时（下载测速数量 -dn），就跳出循环
-				break
-			}
+		} else {
+			atomic.AddInt32(&progress.failCount, 1)
 		}
+
+		// 更新总处理数量（用于进度条显示）
+		atomic.AddInt32(&progress.totalCount, 1)
 	}
+
+	// 停止进度更新协程
+	close(stopUpdate)
+
+	// 最终更新一次进度条
+	success := atomic.LoadInt32(&progress.successCount)
+	fail := atomic.LoadInt32(&progress.failCount)
+	done := int(atomic.LoadInt32(&progress.totalCount))
+	msg := fmt.Sprintf("\x1b[33m%d|%d\x1b[0m", success, fail)
+	prefix := "完成"
+	bar.Update(done, msg, prefix)
+
 	bar.Done()
+
 	if MinSpeed == 0.00 { // 如果没有指定下载速度下限，则直接返回所有测速数据
 		speedSet = utils.DownloadSpeedSet(ipSet)
 	} else if utils.Debug && len(speedSet) == 0 { // 如果指定了下载速度下限，且是调试模式下，且没有找到任何一个满足条件的 IP 时，返回所有测速数据，供用户查看当前的测速结果，以便适当调低预期测速条件
@@ -227,4 +280,125 @@ func downloadHandler(ip *net.IPAddr) (float64, string) {
 		contentRead += int64(bufferRead)
 	}
 	return e.Value() / (Timeout.Seconds() / 120), colo
+}
+
+// downloadHandlerWithProgress 带进度更新的下载处理
+func downloadHandlerWithProgress(ip *net.IPAddr, progress *DownloadProgress) (float64, string) {
+	var lastRedirectURL string // 用于记录最后一次重定向目标，以便在访问错误时输出
+	client := &http.Client{
+		Transport: &http.Transport{DialContext: getDialContext(ip)},
+		Timeout:   Timeout,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			lastRedirectURL = req.URL.String() // 记录每次重定向的目标，以便在访问错误时输出
+			if len(via) > 10 {                 // 限制最多重定向 10 次
+				if utils.Debug { // 调试模式下，输出更多信息
+					utils.Red.Printf("[调试] IP: %s, 下载测速地址重定向次数过多，终止测速，下载测速地址: %s\n", ip.String(), req.URL.String())
+				}
+				return http.ErrUseLastResponse
+			}
+			if req.Header.Get("Referer") == defaultURL { // 当使用默认下载测速地址时，重定向不携带 Referer
+				req.Header.Del("Referer")
+			}
+			return nil
+		},
+	}
+	req, err := http.NewRequest("GET", URL, nil)
+	if err != nil {
+		if utils.Debug { // 调试模式下，输出更多信息
+			utils.Red.Printf("[调试] IP: %s, 下载测速请求创建失败，错误信息: %v, 下载测速地址: %s\n", ip.String(), err, URL)
+		}
+		atomic.StoreInt64(&progress.currentSpeed, 0)
+		return 0.0, ""
+	}
+
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/98.0.4758.80 Safari/537.36")
+
+	response, err := client.Do(req)
+	if err != nil {
+		if utils.Debug { // 调试模式下，输出更多信息
+			printDownloadDebugInfo(ip, err, 0, URL, lastRedirectURL, response)
+		}
+		atomic.StoreInt64(&progress.currentSpeed, 0)
+		return 0.0, ""
+	}
+	defer response.Body.Close()
+	if response.StatusCode != 200 {
+		if utils.Debug { // 调试模式下，输出更多信息
+			printDownloadDebugInfo(ip, nil, response.StatusCode, URL, lastRedirectURL, response)
+		}
+		atomic.StoreInt64(&progress.currentSpeed, 0)
+		return 0.0, ""
+	}
+
+	// 通过头部参数获取地区码
+	colo := getHeaderColo(response.Header)
+
+	timeStart := time.Now()           // 开始时间（当前）
+	timeEnd := timeStart.Add(Timeout) // 加上下载测速时间得到的结束时间
+
+	contentLength := response.ContentLength // 文件大小
+	buffer := make([]byte, bufferSize)
+
+	var (
+		contentRead     int64 = 0
+		timeSlice             = Timeout / 100
+		timeCounter           = 1
+		lastContentRead int64 = 0
+	)
+
+	var nextTime = timeStart.Add(timeSlice * time.Duration(timeCounter))
+	e := ewma.NewMovingAverage()
+
+	// 循环计算，如果文件下载完了（两者相等），则退出循环（终止测速）
+	for contentLength != contentRead {
+		currentTime := time.Now()
+		if currentTime.After(nextTime) {
+			timeCounter++
+			nextTime = timeStart.Add(timeSlice * time.Duration(timeCounter))
+			e.Add(float64(contentRead - lastContentRead))
+
+			// 更新实时速度
+			if timeCounter > 1 {
+				timeDiff := currentTime.Sub(timeStart.Add(timeSlice * time.Duration(timeCounter - 2)))
+				if timeDiff > 0 {
+					speed := int64(float64(contentRead-lastContentRead) / timeDiff.Seconds())
+					atomic.StoreInt64(&progress.currentSpeed, speed)
+				}
+			}
+
+			lastContentRead = contentRead
+		}
+		// 如果超出下载测速时间，则退出循环（终止测速）
+		if currentTime.After(timeEnd) {
+			break
+		}
+		bufferRead, err := response.Body.Read(buffer)
+		if err != nil {
+			if err != io.EOF { // 如果文件下载过程中遇到报错（如 Timeout），且并不是因为文件下载完了，则退出循环（终止测速）
+				break
+			} else if contentLength == -1 { // 文件下载完成 且 文件大小未知，则退出循环（终止测速）
+				break
+			}
+			// 获取上个时间片
+			last_time_slice := timeStart.Add(timeSlice * time.Duration(timeCounter-1))
+			// 下载数据量 / (用当前时间 - 上个时间片/ 时间片)
+			e.Add(float64(contentRead-lastContentRead) / (float64(currentTime.Sub(last_time_slice)) / float64(timeSlice)))
+		}
+		contentRead += int64(bufferRead)
+
+		// 更新实时速度（更频繁的更新）
+		if timeCounter > 1 {
+			elapsed := time.Since(timeStart)
+			if elapsed > 0 {
+				speed := int64(float64(contentRead) / elapsed.Seconds())
+				atomic.StoreInt64(&progress.currentSpeed, speed)
+			}
+		}
+	}
+
+	// 最终速度计算
+	finalSpeed := e.Value() / (Timeout.Seconds() / 120)
+	atomic.StoreInt64(&progress.currentSpeed, int64(finalSpeed))
+
+	return finalSpeed, colo
 }

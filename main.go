@@ -29,13 +29,15 @@ https://github.com/XIU2/CloudflareSpeedTest
         延迟测速线程；越多延迟测速越快，性能弱的设备 (如路由器) 请勿太高；(默认 200 最多 1000)
     -t 4
         延迟测速次数；单个 IP 延迟测速的次数；(默认 4 次)
+    -tn 0
+        延迟测速可用数量；当可用IP数量达到此值时提前结束延迟测速，0 表示不限制；(默认 0 不限制)
     -dn 10
         下载测速数量；延迟测速并排序后，从最低延迟起下载测速的数量；(默认 10 个)
     -dt 10
         下载测速时间；单个 IP 下载测速最长时间，不能太短；(默认 10 秒)
     -tp 443
         指定测速端口；延迟测速/下载测速时使用的端口；(默认 443 端口)
-    -url https://cf.xiu2.xyz/url
+    -url https://download.parallels.com/desktop/v15/15.1.5-47309/ParallelsDesktop-15.1.5-47309.dmg
         指定测速地址；延迟测速(HTTPing)/下载测速时使用的地址，默认地址不保证可用性，建议自建；
 
     -httping
@@ -80,10 +82,11 @@ https://github.com/XIU2/CloudflareSpeedTest
 	var maxLossRate float64
 	flag.IntVar(&task.Routines, "n", 200, "延迟测速线程")
 	flag.IntVar(&task.PingTimes, "t", 4, "延迟测速次数")
+	flag.IntVar(&task.TargetNum, "tn", 0, "延迟测速可用数量")
 	flag.IntVar(&task.TestCount, "dn", 10, "下载测速数量")
 	flag.IntVar(&downloadTime, "dt", 10, "下载测速时间")
 	flag.IntVar(&task.TCPPort, "tp", 443, "指定测速端口")
-	flag.StringVar(&task.URL, "url", "https://cf.xiu2.xyz/url", "指定测速地址")
+	flag.StringVar(&task.URL, "url", "https://download.parallels.com/desktop/v15/15.1.5-47309/ParallelsDesktop-15.1.5-47309.dmg", "指定测速地址")
 
 	flag.BoolVar(&task.Httping, "httping", false, "切换测速模式")
 	flag.IntVar(&task.HttpingStatusCode, "httping-code", 0, "有效状态代码")
@@ -133,7 +136,7 @@ https://github.com/XIU2/CloudflareSpeedTest
 func main() {
 	task.InitRandSeed() // 置随机数种子
 
-	fmt.Printf("# XIU2/CloudflareSpeedTest %s \n\n", version)
+	fmt.Printf("\x1b[34;1m# CloudflareSpeedTest\x1b[0m %s\n", version)
 
 	// 开始延迟测速 + 过滤延迟/丢包
 	pingData := task.NewPing().Run().FilterDelay().FilterLossRate()
