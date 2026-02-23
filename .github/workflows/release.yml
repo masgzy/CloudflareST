@@ -37,6 +37,9 @@ jobs:
           - goos: windows
             goarch: '386'
             ext: .zip
+          - goos: windows
+            goarch: arm64
+            ext: .zip
           # Darwin (macOS) 构建配置
           - goos: darwin
             goarch: amd64
