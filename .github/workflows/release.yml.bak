@@ -157,13 +157,12 @@ jobs:
         run: |
           mkdir -p release
           cp cfst release/
-          # 添加所有 .sh 文件（排除 cfst_hosts_mac.sh）
+          # 添加所有 .sh 文件（排除 cfst_hosts.sh 和 cfst_hosts_mac.sh）
           for f in script/*.sh; do
             fname=$(basename "$f")
-            if [[ "$fname" != "cfst_hosts_mac.sh" ]]; then
-                cp "$f" release/
+            if "$fname" != "cfst_hosts_mac.sh"; then
+              cp "$f" release/
             fi
-
           done
           cp -r txt/linux/* release/
           cp ip.txt ipv6.txt release/
