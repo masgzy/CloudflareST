@@ -15,7 +15,7 @@ import (
 	"github.com/XIU2/CloudflareSpeedTest/utils"
 )
 
-//go:embed license.txt
+//go:embed statement.txt
 var licenseContent string
 
 var (
@@ -23,11 +23,7 @@ var (
 )
 
 func init() {
-    data, err := os.ReadFile("version.txt")
-    if err == nil {
-        version = string(data)
-    }
-
+    
 	var printVersion bool
 	var help = `
 CloudflareSpeedTest ` + version + `
