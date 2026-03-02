@@ -132,7 +132,7 @@ https://github.com/masgzy/CloudflareST
 		fmt.Println("检查版本更新中...")
 		checkUpdate()
 		if versionNew != "" {
-			utils.Yellow.Printf("*** 发现新版本 [%s]！请前往 [https://github.com/XIU2/CloudflareSpeedTest] 更新！ ***", versionNew)
+			utils.Yellow.Printf("*** 发现新版本 [%s]！请前往 [https://github.com/masgzy/CloudflareST] 更新！ ***", versionNew)
 		} else {
 			utils.Green.Println("当前为最新版本 [" + version + "]！")
 		}
@@ -185,7 +185,7 @@ func checkFirstRun() {
 func checkUpdate() {
 	timeout := 10 * time.Second
 	client := http.Client{Timeout: timeout}
-	res, err := client.Get("https://api.xiu2.xyz/ver/cloudflarespeedtest.txt")
+	res, err := client.Get("https://edgeone.gh-proxy.org/https://github.com/masgzy/CloudflareST/raw/main/txt/version.txt")
 	if err != nil {
 		return
 	}
