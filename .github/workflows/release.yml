@@ -17,9 +17,17 @@ on:
         required: false
         default: false
         type: boolean
+      create_release:
+        description: '是否创建 GitHub Release'
+        required: false
+        default: true
+        type: boolean
 
 permissions:
   contents: write
+
+env:
+  VERSION: ${{ inputs.tag }}
 
 jobs:
   # 构建新版本（使用最新版 Go，支持新系统）
@@ -110,7 +118,7 @@ jobs:
       - name: 编译二进制文件
         shell: bash
         run: |
-          go build -ldflags="-s -w" -o cfst${{ matrix.goos == 'windows' && '.exe' || '' }}
+          go build -ldflags="-s -w -X main.version=${{ env.VERSION }}" -o cfst${{ matrix.goos == 'windows' && '.exe' || '' }}
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
@@ -163,7 +171,6 @@ jobs:
             if [[ "$fname" != "cfst_hosts_mac.sh" ]]; then
                 cp "$f" release/
             fi
-
           done
           cp -r txt/linux/* release/
           cp ip.txt ipv6.txt release/
@@ -226,7 +233,7 @@ jobs:
       - name: 编译二进制文件
         shell: bash
         run: |
-          go build -ldflags="-s -w" -o cfst${{ matrix.goos == 'windows' && '.exe' || '' }}
+          go build -ldflags="-s -w -X main.version=${{ env.VERSION }}" -o cfst${{ matrix.goos == 'windows' && '.exe' || '' }}
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
@@ -273,10 +280,11 @@ jobs:
           path: ${{ steps.set_name.outputs.ARCHIVE_NAME }}
           if-no-files-found: error
 
-  # 创建发行版
+  # 创建发行版（可选）
   release:
     name: 创建发行版
     needs: [build-new, build-old]
+    if: ${{ inputs.create_release }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
