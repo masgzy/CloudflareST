@@ -167,10 +167,12 @@ func main() {
 		go func() {
 			<-ctx.Done()
 			if ctx.Err() == context.DeadlineExceeded {
+				// 先停止进度条，防止后续更新
+				utils.StopAllProgress()
 				utils.Yellow.Println("\n[信息] 程序运行超时，正在结算结果并退出...")
 				atomic.StoreInt32(&task.GlobalEarlyStop, 1)
 				// 给一些时间让当前操作完成
-				time.Sleep(2 * time.Second)
+				time.Sleep(500 * time.Millisecond)
 				os.Exit(0)
 			}
 		}()
