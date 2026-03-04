@@ -84,13 +84,13 @@ mkdir cfst
 cd cfst
 
 # 下载 CFST 压缩包（自行根据需求替换 URL 中 [版本号] 和 [文件名]）
-wget -N https://github.com/masgzy/CloudflareST/releases/download/v2.3.4-mod-1/cfst_linux_amd64.tar.gz
+wget -N https://github.com/masgzy/CloudflareST/releases/download/latest/cfst_linux_amd64.tar.gz
 # 如果你是在国内网络环境中下载，那么请使用下面这几个镜像加速之一：
-# wget -N https://wget.la/https://github.com/masgzy/CloudflareST/releases/download/v2.3.4-mod-1/cfst_linux_amd64.tar.gz
-# wget -N https://ghfast.top/https://github.com/masgzy/CloudflareST/releases/download/v2.3.4-mod-1/cfst_linux_amd64.tar.gz
-# wget -N https://ghproxy.it/https://github.com/masgzy/CloudflareST/releases/download/v2.3.4-mod-1/cfst_linux_amd64.tar.gz
-# wget -N https://gh-proxy.org/https://github.com/masgzy/CloudflareST/releases/download/v2.3.4-mod-1/cfst_linux_amd64.tar.gz
-# wget -N https://cdn.gh-proxy.org/https://github.com/masgzy/CloudflareST/releases/download/v2.3.4-mod-1/cfst_linux_amd64.tar.gz
+# wget -N https://wget.la/https://github.com/masgzy/CloudflareST/releases/download/latest/cfst_linux_amd64.tar.gz
+# wget -N https://ghfast.top/https://github.com/masgzy/CloudflareST/releases/download/latest/cfst_linux_amd64.tar.gz
+# wget -N https://ghproxy.it/https://github.com/masgzy/CloudflareST/releases/download/latest/cfst_linux_amd64.tar.gz
+# wget -N https://gh-proxy.org/https://github.com/masgzy/CloudflareST/releases/download/latest/cfst_linux_amd64.tar.gz
+# wget -N https://cdn.gh-proxy.org/https://github.com/masgzy/CloudflareST/releases/download/latest/cfst_linux_amd64.tar.gz
 # 如果下载失败的话，尝试删除 -N 参数（如果是为了更新，则记得提前删除旧压缩包 rm cfst_linux_amd64.tar.gz ）
 
 # 解压（不需要删除旧文件，会直接覆盖，自行根据需求替换 文件名）
@@ -236,13 +236,15 @@ https://github.com/XIU2/CloudflareSpeedTest
         禁用下载测速；禁用后测速结果会按延迟排序 (默认按下载速度排序)；(默认 启用)
     -allip
         测速全部的IP；对 IP 段中的每个 IP (仅支持 IPv4) 进行测速；(默认 每个 /24 段随机测速一个 IP)
-
+    -intf eth0
+        绑定网络接口；绑定到指定的网络接口名或本地 IP 进行测速，如 eth0、pppoe-ct 或 192.168.1.100；(默认 空)
+    -timeout 3600
+        程序超时退出；程序运行超时时间（秒），超时后立即结算结果并 退出；(默认 0 不限制)
     -debug
         调试输出模式；会在一些非预期情况下输出更多日志以便判断原因；(默认 关闭)
         目前该功能仅针对 HTTPing 延迟测速过程 及 下载测速过程，当过程中因为各种原因导致当前 IP 测速中断都会输出错误原因
         例如：HTTPing 延迟测速过程中，因为 HTTP 状态码不符合或测速地址有问题或超时等原因而终止测速
         例如：下载测速过程中，因为下载测速地址有问题（被阻断、403状态码、超时）等原因而终止测速（导致显示 0.00）
-
     -v
         打印程序版本 + 检查版本更新
     -h
