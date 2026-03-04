@@ -6,11 +6,9 @@ import (
 	"sort"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 
 	"github.com/XIU2/CloudflareSpeedTest/utils"
-	"golang.org/x/sys/unix"
 )
 
 const (
@@ -20,18 +18,6 @@ const (
 	defaultPort       = 443
 	defaultPingTimes  = 4
 )
-
-// getBindInterfaceControl 返回一个网络控制函数，用于绑定到指定的网络接口
-func getBindInterfaceControl(ifaceName string) func(network, address string, c syscall.RawConn) error {
-	return func(network, address string, c syscall.RawConn) error {
-		var err error
-		c.Control(func(fd uintptr) {
-			// SO_BINDTODEVICE 用于将 socket 绑定到指定的网络接口
-			err = syscall.SetsockoptString(int(fd), syscall.SOL_SOCKET, unix.SO_BINDTODEVICE, ifaceName)
-		})
-		return err
-	}
-}
 
 var (
 	Routines  = defaultRoutines
