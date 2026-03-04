@@ -34,57 +34,72 @@ func getBindInterfaceControl(ifaceName string) func(network, address string, c s
 			switch runtime.GOOS {
 			case "linux":
 				// Linux: 使用 SO_BINDTODEVICE
-				setErr = bindToDeviceLinux(int(fd), ifaceName)
+				setErr = setsockoptString(int(fd), syscall.SOL_SOCKET, SO_BINDTODEVICE, ifaceName)
 			case "darwin":
 				// macOS: 使用 IP_BOUND_IF / IPV6_BOUND_IF
-				setErr = bindToInterfaceDarwin(int(fd), iface.Index, network)
+				setErr = bindDarwin(int(fd), iface.Index, network)
 			case "windows":
 				// Windows: 使用 IP_UNICAST_IF / IPV6_UNICAST_IF
-				setErr = bindToInterfaceWindows(int(fd), uint32(iface.Index), network)
+				setErr = bindWindows(fd, uint32(iface.Index), network)
 			}
 		})
 		return setErr
 	}
 }
 
-// bindToDeviceLinux Linux 平台绑定接口
-func bindToDeviceLinux(fd int, ifaceName string) error {
-	return syscall.SetsockoptString(fd, syscall.SOL_SOCKET, SO_BINDTODEVICE, ifaceName)
+// setsockoptString 封装跨平台的 setsockopt string 操作
+func setsockoptString(fd int, level, opt int, val string) error {
+	var err error
+	switch runtime.GOOS {
+	case "windows":
+		// Windows: 使用 syscall.SetsockoptString（接受 syscall.Handle）
+		err = syscall.SetsockoptString(syscall.Handle(fd), level, opt, val)
+	default:
+		// Unix: 直接使用 syscall.SetsockoptString
+		err = syscall.SetsockoptString(fd, level, opt, val)
+	}
+	return err
 }
 
-// bindToInterfaceDarwin macOS 平台绑定接口
-func bindToInterfaceDarwin(fd int, ifIndex int, network string) error {
+// setsockoptInt 封装跨平台的 setsockopt int 操作
+func setsockoptInt(fd int, level, opt int, val int) error {
+	switch runtime.GOOS {
+	case "windows":
+		return syscall.SetsockoptInt(syscall.Handle(fd), level, opt, val)
+	default:
+		return syscall.SetsockoptInt(fd, level, opt, val)
+	}
+}
+
+// bindDarwin macOS 平台绑定接口
+func bindDarwin(fd int, ifIndex int, network string) error {
 	switch network {
 	case "tcp4", "udp4":
-		// IPv4: 使用 IP_BOUND_IF
-		return syscall.SetsockoptInt(fd, syscall.IPPROTO_IP, IP_BOUND_IF, ifIndex)
+		return setsockoptInt(fd, syscall.IPPROTO_IP, IP_BOUND_IF, ifIndex)
 	case "tcp6", "udp6":
-		// IPv6: 使用 IPV6_BOUND_IF
-		return syscall.SetsockoptInt(fd, syscall.IPPROTO_IPV6, IPV6_BOUND_IF, ifIndex)
+		return setsockoptInt(fd, syscall.IPPROTO_IPV6, IPV6_BOUND_IF, ifIndex)
 	default:
-		// 默认尝试 IPv4，失败则尝试 IPv6
-		err := syscall.SetsockoptInt(fd, syscall.IPPROTO_IP, IP_BOUND_IF, ifIndex)
+		err := setsockoptInt(fd, syscall.IPPROTO_IP, IP_BOUND_IF, ifIndex)
 		if err != nil {
-			return syscall.SetsockoptInt(fd, syscall.IPPROTO_IPV6, IPV6_BOUND_IF, ifIndex)
+			return setsockoptInt(fd, syscall.IPPROTO_IPV6, IPV6_BOUND_IF, ifIndex)
 		}
 		return err
 	}
 }
 
-// bindToInterfaceWindows Windows 平台绑定接口
-func bindToInterfaceWindows(fd int, ifIndex uint32, network string) error {
+// bindWindows Windows 平台绑定接口
+func bindWindows(fd uintptr, ifIndex uint32, network string) error {
+	// Windows 的 fd 是 syscall.Handle (本质是 uintptr)
+	handle := syscall.Handle(fd)
 	switch network {
 	case "tcp4", "udp4":
-		// IPv4: 使用 IP_UNICAST_IF
-		return syscall.SetsockoptInt(fd, syscall.IPPROTO_IP, IP_UNICAST_IF, int(ifIndex))
+		return syscall.SetsockoptInt(handle, syscall.IPPROTO_IP, IP_UNICAST_IF, int(ifIndex))
 	case "tcp6", "udp6":
-		// IPv6: 使用 IPV6_UNICAST_IF
-		return syscall.SetsockoptInt(fd, syscall.IPPROTO_IPV6, IPV6_UNICAST_IF, int(ifIndex))
+		return syscall.SetsockoptInt(handle, syscall.IPPROTO_IPV6, IPV6_UNICAST_IF, int(ifIndex))
 	default:
-		// 默认尝试 IPv4，失败则尝试 IPv6
-		err := syscall.SetsockoptInt(fd, syscall.IPPROTO_IP, IP_UNICAST_IF, int(ifIndex))
+		err := syscall.SetsockoptInt(handle, syscall.IPPROTO_IP, IP_UNICAST_IF, int(ifIndex))
 		if err != nil {
-			return syscall.SetsockoptInt(fd, syscall.IPPROTO_IPV6, IPV6_UNICAST_IF, int(ifIndex))
+			return syscall.SetsockoptInt(handle, syscall.IPPROTO_IPV6, IPV6_UNICAST_IF, int(ifIndex))
 		}
 		return err
 	}
