@@ -91,6 +91,10 @@ func TestDownloadSpeed(ipSet utils.PingDelaySet) (speedSet utils.DownloadSpeedSe
 			case <-stopUpdate:
 				return
 			case <-ticker.C:
+				// 检查全局停止标志
+				if atomic.LoadInt32(&GlobalEarlyStop) == 1 {
+					return
+				}
 				success := atomic.LoadInt32(&progress.successCount)
 				fail := atomic.LoadInt32(&progress.failCount)
 				done := int(atomic.LoadInt32(&progress.totalCount))
@@ -131,6 +135,14 @@ func TestDownloadSpeed(ipSet utils.PingDelaySet) (speedSet utils.DownloadSpeedSe
 
 	// 停止进度更新协程
 	close(stopUpdate)
+
+	// 检查是否因为全局停止而退出
+	if atomic.LoadInt32(&GlobalEarlyStop) == 1 {
+		bar.Done()
+		// 按速度排序
+		sort.Sort(speedSet)
+		return
+	}
 
 	// 最终更新一次进度条
 	success := atomic.LoadInt32(&progress.successCount)
@@ -367,6 +379,10 @@ func downloadHandlerWithProgress(ip *net.IPAddr, progress *DownloadProgress) (fl
 
 	// 循环计算，如果文件下载完了（两者相等），则退出循环（终止测速）
 	for contentLength != contentRead {
+		// 检查全局停止标志
+		if atomic.LoadInt32(&GlobalEarlyStop) == 1 {
+			break
+		}
 		currentTime := time.Now()
 		if currentTime.After(nextTime) {
 			timeCounter++

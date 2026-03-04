@@ -5,6 +5,7 @@ import (
 	"math"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/term"
@@ -22,6 +23,19 @@ const (
 
 // 进度条亮度范围
 var progressBarBrightness = [2]float64{0.5, 0.3}
+
+// globalProgressStop 全局进度条停止标志
+var globalProgressStop int32 = 0
+
+// StopAllProgress 停止所有进度条
+func StopAllProgress() {
+	atomic.StoreInt32(&globalProgressStop, 1)
+}
+
+// IsProgressStopped 检查是否已停止
+func IsProgressStopped() bool {
+	return atomic.LoadInt32(&globalProgressStop) == 1
+}
 
 // TextData 文本数据
 type TextData struct {
@@ -86,6 +100,12 @@ func (b *Bar) runRenderLoop() {
 			fmt.Println() // 换行
 			return
 		case <-ticker.C:
+			// 检查全局停止标志
+			if IsProgressStopped() {
+				b.renderOnce()
+				fmt.Println()
+				return
+			}
 			if b.inner.isCompleted() {
 				b.renderOnce()
 				fmt.Println()
@@ -251,7 +271,7 @@ func getTerminalWidth() int {
 
 // Grow 增加进度
 func (b *Bar) Grow(num int, myStrVal string) {
-	if b.inner.isCompleted() {
+	if b.inner.isCompleted() || IsProgressStopped() {
 		return
 	}
 
@@ -263,7 +283,7 @@ func (b *Bar) Grow(num int, myStrVal string) {
 
 // Update 更新进度和消息
 func (b *Bar) Update(pos int, msg string, prefix string) {
-	if b.inner.isCompleted() {
+	if b.inner.isCompleted() || IsProgressStopped() {
 		return
 	}
 
@@ -276,7 +296,7 @@ func (b *Bar) Update(pos int, msg string, prefix string) {
 
 // SetPrefix 设置前缀
 func (b *Bar) SetPrefix(prefix string) {
-	if b.inner.isCompleted() {
+	if b.inner.isCompleted() || IsProgressStopped() {
 		return
 	}
 
@@ -287,7 +307,7 @@ func (b *Bar) SetPrefix(prefix string) {
 
 // Done 完成进度条
 func (b *Bar) Done() {
-	if b.inner.isCompleted() {
+	if b.inner.isCompleted() || IsProgressStopped() {
 		return
 	}
 
