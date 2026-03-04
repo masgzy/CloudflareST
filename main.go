@@ -169,7 +169,9 @@ func main() {
 			if ctx.Err() == context.DeadlineExceeded {
 				// 先停止进度条，防止后续更新
 				utils.StopAllProgress()
-				utils.Yellow.Println("\n[信息] 程序运行超时，正在结算结果并退出...")
+				// 清除当前行并打印退出信息
+				fmt.Print("\r\x1b[K")
+				utils.Yellow.Println("[信息] 程序运行超时，正在结算结果并退出...")
 				atomic.StoreInt32(&task.GlobalEarlyStop, 1)
 				// 给一些时间让当前操作完成
 				time.Sleep(500 * time.Millisecond)
