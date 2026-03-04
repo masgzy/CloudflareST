@@ -42,8 +42,8 @@ func (p *Ping) httping(ip *net.IPAddr) (int, time.Duration, string) {
 	// 先访问一次获得 HTTP 状态码及地区码
 	var colo string
 	{
-		// 检查是否需要提前停止
-		if atomic.LoadInt32(&p.earlyStop) == 1 {
+		// 检查是否需要提前停止（局部或全局）
+		if atomic.LoadInt32(&p.earlyStop) == 1 || atomic.LoadInt32(&GlobalEarlyStop) == 1 {
 			return 0, 0, ""
 		}
 		request, err := http.NewRequest(http.MethodHead, URL, nil)
@@ -102,8 +102,8 @@ func (p *Ping) httping(ip *net.IPAddr) (int, time.Duration, string) {
 	success := 0
 	var delay time.Duration
 	for i := 0; i < PingTimes; i++ {
-		// 在每次请求前检查是否需要提前停止
-		if atomic.LoadInt32(&p.earlyStop) == 1 {
+		// 在每次请求前检查是否需要提前停止（局部或全局）
+		if atomic.LoadInt32(&p.earlyStop) == 1 || atomic.LoadInt32(&GlobalEarlyStop) == 1 {
 			return success, delay, colo
 		}
 		request, err := http.NewRequest(http.MethodHead, URL, nil)
