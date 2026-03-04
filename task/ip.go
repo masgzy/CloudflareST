@@ -19,6 +19,12 @@ var (
 	// IPFile is the filename of IP Rangs
 	IPFile = defaultInputFile
 	IPText string
+	// BindIntf 绑定到指定的网络接口或本地 IP 进行测速
+	BindIntf string
+	// ProgramTimeout 程序超时时间（秒）
+	ProgramTimeout int
+	// GlobalEarlyStop 全局停止标志，用于超时退出
+	GlobalEarlyStop int32
 )
 
 func InitRandSeed() {

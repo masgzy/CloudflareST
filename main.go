@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	_ "embed"
 	"flag"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/XIU2/CloudflareSpeedTest/task"
@@ -77,6 +79,11 @@ https://github.com/masgzy/CloudflareST
     -allip
         测速全部的IP；对 IP 段中的每个 IP (仅支持 IPv4) 进行测速；(默认 每个 /24 段随机测速一个 IP)
 
+    -intf eth0
+        绑定网络接口；绑定到指定的网络接口名或本地 IP 进行测速，如 eth0、pppoe-ct 或 192.168.1.100；(默认 空)
+    -timeout 3600
+        程序超时退出；程序运行超时时间（秒），超时后立即结算结果并退出；(默认 0 不限制)
+
     -debug
         调试输出模式；会在一些非预期情况下输出更多日志以便判断原因；(默认 关闭)
 
@@ -87,6 +94,7 @@ https://github.com/masgzy/CloudflareST
 `
 	var minDelay, maxDelay, downloadTime int
 	var maxLossRate float64
+	var programTimeout int
 	flag.IntVar(&task.Routines, "n", 200, "延迟测速线程")
 	flag.IntVar(&task.PingTimes, "t", 4, "延迟测速次数")
 	flag.IntVar(&task.TargetNum, "tn", 0, "延迟测速可用数量")
@@ -112,6 +120,9 @@ https://github.com/masgzy/CloudflareST
 	flag.BoolVar(&task.Disable, "dd", false, "禁用下载测速")
 	flag.BoolVar(&task.TestAll, "allip", false, "测速全部 IP")
 
+	flag.StringVar(&task.BindIntf, "intf", "", "绑定网络接口")
+	flag.IntVar(&programTimeout, "timeout", 0, "程序超时退出")
+
 	flag.BoolVar(&utils.Debug, "debug", false, "调试输出模式")
 
 	flag.BoolVar(&printVersion, "v", false, "打印程序版本")
@@ -126,6 +137,7 @@ https://github.com/masgzy/CloudflareST
 	utils.InputMaxLossRate = float32(maxLossRate)
 	task.Timeout = time.Duration(downloadTime) * time.Second
 	task.HttpingCFColomap = task.MapColoMap()
+	task.ProgramTimeout = programTimeout
 
 	if printVersion {
 		println(version)
@@ -147,6 +159,30 @@ func main() {
 	task.InitRandSeed() // 置随机数种子
 
 	fmt.Printf("\x1b[34;1m# CloudflareST\x1b[0m %s\n", version)
+
+	// 如果设置了程序超时时间，启动超时处理 goroutine
+	if task.ProgramTimeout > 0 {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(task.ProgramTimeout)*time.Second)
+		defer cancel()
+		go func() {
+			<-ctx.Done()
+			if ctx.Err() == context.DeadlineExceeded {
+				utils.Yellow.Println("\n[信息] 程序运行超时，正在结算结果并退出...")
+				atomic.StoreInt32(&task.GlobalEarlyStop, 1)
+				// 给一些时间让当前操作完成
+				time.Sleep(2 * time.Second)
+				os.Exit(0)
+			}
+		}()
+		if task.ProgramTimeout > 0 {
+			fmt.Printf("程序超时时间: %d 秒\n", task.ProgramTimeout)
+		}
+	}
+
+	// 如果设置了绑定接口，输出提示
+	if task.BindIntf != "" {
+		fmt.Printf("绑定网络接口: %s\n", task.BindIntf)
+	}
 
 	// 开始延迟测速 + 过滤延迟/丢包
 	pingData := task.NewPing().Run().FilterDelay().FilterLossRate()

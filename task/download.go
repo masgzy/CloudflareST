@@ -106,8 +106,8 @@ func TestDownloadSpeed(ipSet utils.PingDelaySet) (speedSet utils.DownloadSpeedSe
 	}()
 
 	for i := 0; i < testNum; i++ {
-		// 检查是否已经凑够数量
-		if int(atomic.LoadInt32(&progress.successCount)) >= TestCount {
+		// 检查是否已经凑够数量或全局超时
+		if int(atomic.LoadInt32(&progress.successCount)) >= TestCount || atomic.LoadInt32(&GlobalEarlyStop) == 1 {
 			break
 		}
 
@@ -161,7 +161,23 @@ func getDialContext(ip *net.IPAddr) func(ctx context.Context, network, address s
 		fakeSourceAddr = fmt.Sprintf("[%s]:%d", ip.String(), TCPPort)
 	}
 	return func(ctx context.Context, network, address string) (net.Conn, error) {
-		return (&net.Dialer{}).DialContext(ctx, network, fakeSourceAddr)
+		dialer := &net.Dialer{}
+		// 如果指定了绑定接口或本地 IP
+		if BindIntf != "" {
+			// 检查是否是 IP 地址格式
+			if bindIP := net.ParseIP(BindIntf); bindIP != nil {
+				// 是 IP 地址，设置 LocalAddr
+				if bindIP.To4() != nil {
+					dialer.LocalAddr = &net.TCPAddr{IP: bindIP}
+				} else {
+					dialer.LocalAddr = &net.TCPAddr{IP: bindIP}
+				}
+			} else {
+				// 不是 IP 地址，认为是接口名，通过 Control 函数绑定
+				dialer.Control = getBindInterfaceControl(BindIntf)
+			}
+		}
+		return dialer.DialContext(ctx, network, fakeSourceAddr)
 	}
 }
 

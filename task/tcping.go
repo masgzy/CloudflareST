@@ -6,9 +6,11 @@ import (
 	"sort"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/XIU2/CloudflareSpeedTest/utils"
+	"golang.org/x/sys/unix"
 )
 
 const (
@@ -18,6 +20,18 @@ const (
 	defaultPort       = 443
 	defaultPingTimes  = 4
 )
+
+// getBindInterfaceControl 返回一个网络控制函数，用于绑定到指定的网络接口
+func getBindInterfaceControl(ifaceName string) func(network, address string, c syscall.RawConn) error {
+	return func(network, address string, c syscall.RawConn) error {
+		var err error
+		c.Control(func(fd uintptr) {
+			// SO_BINDTODEVICE 用于将 socket 绑定到指定的网络接口
+			err = syscall.SetsockoptString(int(fd), syscall.SOL_SOCKET, unix.SO_BINDTODEVICE, ifaceName)
+		})
+		return err
+	}
+}
 
 var (
 	Routines  = defaultRoutines
@@ -76,8 +90,8 @@ func (p *Ping) Run() utils.PingDelaySet {
 		fmt.Printf("开始延迟测速（模式：TCP, 端口：%d, 范围：%v ~ %v ms, 丢包：%.2f）\n", TCPPort, utils.InputMinDelay.Milliseconds(), utils.InputMaxDelay.Milliseconds(), utils.InputMaxLossRate)
 	}
 	for _, ip := range p.ips {
-		// 检查是否需要提前停止
-		if atomic.LoadInt32(&p.earlyStop) == 1 {
+		// 检查是否需要提前停止（局部或全局）
+		if atomic.LoadInt32(&p.earlyStop) == 1 || atomic.LoadInt32(&GlobalEarlyStop) == 1 {
 			break
 		}
 		p.wg.Add(1)
@@ -94,8 +108,8 @@ func (p *Ping) start(ip *net.IPAddr) {
 	defer p.wg.Done()
 	defer func() { <-p.control }()
 
-	// 检查是否需要提前停止
-	if atomic.LoadInt32(&p.earlyStop) == 1 {
+	// 检查是否需要提前停止（局部或全局）
+	if atomic.LoadInt32(&p.earlyStop) == 1 || atomic.LoadInt32(&GlobalEarlyStop) == 1 {
 		return
 	}
 
@@ -111,7 +125,25 @@ func (p *Ping) tcping(ip *net.IPAddr) (bool, time.Duration) {
 	} else {
 		fullAddress = fmt.Sprintf("[%s]:%d", ip.String(), TCPPort)
 	}
-	conn, err := net.DialTimeout("tcp", fullAddress, tcpConnectTimeout)
+
+	dialer := &net.Dialer{Timeout: tcpConnectTimeout}
+	// 如果指定了绑定接口或本地 IP
+	if BindIntf != "" {
+		// 检查是否是 IP 地址格式
+		if bindIP := net.ParseIP(BindIntf); bindIP != nil {
+			// 是 IP 地址，设置 LocalAddr
+			if bindIP.To4() != nil {
+				dialer.LocalAddr = &net.TCPAddr{IP: bindIP}
+			} else {
+				dialer.LocalAddr = &net.TCPAddr{IP: bindIP}
+			}
+		} else {
+			// 不是 IP 地址，认为是接口名，通过 Control 函数绑定
+			dialer.Control = getBindInterfaceControl(BindIntf)
+		}
+	}
+
+	conn, err := dialer.Dial("tcp", fullAddress)
 	if err != nil {
 		return false, 0
 	}
@@ -128,8 +160,8 @@ func (p *Ping) checkConnection(ip *net.IPAddr) (recv int, totalDelay time.Durati
 	}
 	colo = "" // TCPing 不获取 colo
 	for i := 0; i < PingTimes; i++ {
-		// 在每次 ping 前检查是否需要提前停止
-		if atomic.LoadInt32(&p.earlyStop) == 1 {
+		// 在每次 ping 前检查是否需要提前停止（局部或全局）
+		if atomic.LoadInt32(&p.earlyStop) == 1 || atomic.LoadInt32(&GlobalEarlyStop) == 1 {
 			return
 		}
 		if ok, delay := p.tcping(ip); ok {
@@ -168,8 +200,8 @@ func (p *Ping) tryAppendIPData(data *utils.PingData) bool {
 
 // handle tcping
 func (p *Ping) tcpingHandler(ip *net.IPAddr) {
-	// 在开始测试前再次检查
-	if atomic.LoadInt32(&p.earlyStop) == 1 {
+	// 在开始测试前再次检查（局部或全局）
+	if atomic.LoadInt32(&p.earlyStop) == 1 || atomic.LoadInt32(&GlobalEarlyStop) == 1 {
 		return
 	}
 
@@ -178,8 +210,8 @@ func (p *Ping) tcpingHandler(ip *net.IPAddr) {
 	// 增加已处理计数
 	done := int(atomic.AddInt32(&p.totalCount, 1))
 
-	// 测试完成后再次检查是否需要停止
-	if atomic.LoadInt32(&p.earlyStop) == 1 {
+	// 测试完成后再次检查是否需要停止（局部或全局）
+	if atomic.LoadInt32(&p.earlyStop) == 1 || atomic.LoadInt32(&GlobalEarlyStop) == 1 {
 		// 更新进度条
 		usable := atomic.LoadInt32(&p.usableCount)
 		p.bar.Update(done, fmt.Sprintf("%d/%d", done, len(p.ips)), fmt.Sprintf("\x1b[37m可用:\x1b[0m \x1b[92m%d\x1b[0m", usable))
