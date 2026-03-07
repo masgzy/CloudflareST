@@ -1,0 +1,222 @@
+name: EXP
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '发行版本标签 (例如: v1.0.0)'
+        required: true
+        type: string
+      draft:
+        description: '是否为草稿版本'
+        required: false
+        default: false
+        type: boolean
+      prerelease:
+        description: '是否为预发布版本'
+        required: false
+        default: false
+        type: boolean
+      create_release:
+        description: '是否创建 GitHub Release'
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+
+env:
+  VERSION: ${{ inputs.tag }}
+
+jobs:
+  # 构建新版本（使用最新版 Go，支持新系统）
+  build-new:
+    name: 构建新版本 (Go 最新版)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Windows 构建配置
+          - goos: windows
+            goarch: amd64
+            ext: .zip
+          - goos: windows
+            goarch: '386'
+            ext: .zip
+          - goos: windows
+            goarch: arm64
+            ext: .zip
+          # Darwin (macOS) 构建配置
+          - goos: darwin
+            goarch: amd64
+            ext: .zip
+          - goos: darwin
+            goarch: arm64
+            ext: .zip
+          # Linux 构建配置
+          - goos: linux
+            goarch: '386'
+            ext: .tar.gz
+          - goos: linux
+            goarch: amd64
+            ext: .tar.gz
+          - goos: linux
+            goarch: arm64
+            ext: .tar.gz
+          - goos: linux
+            goarch: arm
+            arm: '5'
+            archname: armv5
+            ext: .tar.gz
+          - goos: linux
+            goarch: arm
+            arm: '6'
+            archname: armv6
+            ext: .tar.gz
+          - goos: linux
+            goarch: arm
+            arm: '7'
+            archname: armv7
+            ext: .tar.gz
+          - goos: linux
+            goarch: mips
+            ext: .tar.gz
+          - goos: linux
+            goarch: mips64
+            ext: .tar.gz
+          - goos: linux
+            goarch: mips64le
+            ext: .tar.gz
+          - goos: linux
+            goarch: mipsle
+            ext: .tar.gz
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Go 环境
+        uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+
+      - name: 设置归档文件名
+        id: set_name
+        run: |
+          ARCH="${{ matrix.archname || matrix.goarch }}"
+          if [[ "${{ matrix.goos }}" == "darwin" ]]; then
+            OS_NAME="darwin"
+          elif [[ "${{ matrix.goos }}" == "windows" ]]; then
+            OS_NAME="windows"
+          else
+            OS_NAME="linux"
+          fi
+          echo "ARCHIVE_NAME=cfst_${OS_NAME}_${ARCH}${{ matrix.ext }}" >> $GITHUB_OUTPUT
+
+      - name: 编译二进制文件
+        shell: bash
+        run: |
+          go build -ldflags="-s -w -X main.version=${{ env.VERSION }}" -o cfst${{ matrix.goos == 'windows' && '.exe' || '' }}
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          GOARM: ${{ matrix.arm || '' }}
+          CGO_ENABLED: '0'
+
+      - name: 打包 Windows 版本
+        if: matrix.goos == 'windows'
+        shell: bash
+        run: |
+          mkdir -p release
+          cp cfst.exe release/cfst.exe
+          cp script/*.bat release/
+          cp -r txt/win/* release/
+          cp ip.txt ipv6.txt release/
+          touch release/.first_run
+          cd release
+          zip -r ../${{ steps.set_name.outputs.ARCHIVE_NAME }} .
+
+      - name: 打包 Darwin (macOS) 版本
+        if: matrix.goos == 'darwin'
+        shell: bash
+        run: |
+          mkdir -p release
+          cp cfst release/
+          # 将 cfst_hosts_mac.sh 重命名为 cfst_hosts.sh
+          cp script/cfst_hosts_mac.sh release/cfst_hosts.sh
+          # 添加其他 .sh 文件（排除 cfst_hosts.sh 和 cfst_hosts_mac.sh）
+          for f in script/*.sh; do
+            fname=$(basename "$f")
+            if [[ "$fname" != "cfst_hosts.sh" && "$fname" != "cfst_hosts_mac.sh" ]]; then
+              cp "$f" release/
+            fi
+          done
+          cp -r txt/mac/* release/
+          cp ip.txt ipv6.txt release/
+          touch release/.first_run
+          cd release
+          zip -r ../${{ steps.set_name.outputs.ARCHIVE_NAME }} .
+
+      - name: 打包 Linux 版本
+        if: matrix.goos == 'linux'
+        shell: bash
+        run: |
+          mkdir -p release
+          cp cfst release/
+          # 添加所有 .sh 文件（排除 cfst_hosts_mac.sh）
+          for f in script/*.sh; do
+            fname=$(basename "$f")
+            if [[ "$fname" != "cfst_hosts_mac.sh" ]]; then
+                cp "$f" release/
+            fi
+          done
+          cp -r txt/linux/* release/
+          cp ip.txt ipv6.txt release/
+          touch release/.first_run
+          cd release
+          tar -czvf ../${{ steps.set_name.outputs.ARCHIVE_NAME }} .
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.set_name.outputs.ARCHIVE_NAME }}
+          path: ${{ steps.set_name.outputs.ARCHIVE_NAME }}
+          if-no-files-found: error
+
+  # 创建发行版（可选）
+  release:
+    name: 创建发行版
+    needs: [build-new]
+    if: ${{ inputs.create_release }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 下载所有构建产物
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: false
+
+      - name: 准备发行版资源
+        run: |
+          mkdir -p release_assets
+          find artifacts -type f \( -name "*.zip" -o -name "*.tar.gz" \) -exec cp {} release_assets/ \;
+          echo "=== 发行版文件列表 ==="
+          ls -la release_assets/
+
+      - name: 创建发行版
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ inputs.tag }}
+          name: Release ${{ inputs.tag }}
+          draft: ${{ inputs.draft }}
+          prerelease: ${{ inputs.prerelease }}
+          files: release_assets/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
