@@ -27,6 +27,17 @@ var (
 	GlobalEarlyStop int32
 )
 
+// ValidateBindIntf 验证 BindIntf 参数是否有效
+// 应在程序启动时调用，如果验证失败则直接退出程序
+func ValidateBindIntf() {
+	if BindIntf == "" {
+		return // 空参数有效，表示不绑定接口
+	}
+	if err := ValidateBindInterface(BindIntf); err != nil {
+		log.Fatal(err)
+	}
+}
+
 func InitRandSeed() {
 	rand.Seed(time.Now().UnixNano())
 }
