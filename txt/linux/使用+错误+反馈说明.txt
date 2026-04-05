@@ -28,6 +28,19 @@ ipv6.txt 为 IPv6 数据文件
 
 可以使用 -f xx.txt 参数来指定不同的 IP 数据文件（支持 IPv4 + IPv6 混合测速），如：
 ./cfst -f ipv6.txt
+./cfst -ipv6
+
+也可以使用 -cfips 调用已保存的 Cloudflare 中国 IP 段：
+./cfst -cfips
+./cfst -ipv6 -cfips
+
+如果本地没有保存过 cfips，会自动获取并保存到 ./cfips/v4.txt 和 ./cfips/v6.txt 。
+
+也可以手动更新 Cloudflare 中国 IP 段：
+./cfst -cfips update
+
+清除已保存的 cfips ：
+./cfst -cfips clear
 
 也可以直接通过参数指定要测速的 IP，如：
 ./cfst -ip 1.1.1.1,2606:4700::/32

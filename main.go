@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	_ "embed"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -24,9 +25,44 @@ var (
 	version, versionNew string
 )
 
+type cfipsFlag struct {
+	value string
+	set   bool
+}
+
+func (f *cfipsFlag) String() string {
+	if !f.set {
+		return ""
+	}
+	return f.value
+}
+
+func (f *cfipsFlag) Set(value string) error {
+	f.set = true
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "true", "use":
+		f.value = "use"
+	case "clear":
+		f.value = "clear"
+	case "update":
+		f.value = "update"
+	case "false":
+		f.value = ""
+	default:
+		return errors.New("`-cfips` 仅支持: use/clear/update")
+	}
+	return nil
+}
+
+func (f *cfipsFlag) IsBoolFlag() bool {
+	return true
+}
+
 func init() {
-    
+
 	var printVersion bool
+	var useIPv6 bool
+	var cfipsMode cfipsFlag
 	var help = `
 CloudflareSpeedTest ` + version + `
 本项目基于XIU2/CloudflareSpeedTest进行修改，使用GPL3.0协议开源
@@ -69,8 +105,16 @@ https://github.com/masgzy/CloudflareST
         显示结果数量；测速后直接显示指定数量的结果，为 0 时不显示结果直接退出；(默认 10 个)
     -f ip.txt
         IP段数据文件；如路径含有空格请加上引号；支持其他 CDN IP段；(默认 ip.txt)
+    -ipv6
+        使用自带的 ipv6.txt 数据文件；等效于 [-f ipv6.txt]；若同时指定 [-cfips] 则改为使用 [./cfips/v6.txt]
     -ip 1.1.1.1,2.2.2.2/24,2606:4700::/32
         指定IP段数据；直接通过参数指定要测速的 IP 段数据，英文逗号分隔；(默认 空)
+    -cfips
+        使用已保存的 Cloudflare 中国 IP 段；默认使用 [./cfips/v4.txt]，若同时指定 [-ipv6] 则使用 [./cfips/v6.txt]
+    -cfips clear
+        清除已保存的 Cloudflare 中国 IP 段文件（仅执行清理后退出）
+    -cfips update
+        从 cloudflare-cn.com 更新 IPv4/IPv6 IP 段并保存到 [./cfips/v4.txt] [./cfips/v6.txt]（仅执行更新后退出）
     -o result.csv
         写入结果文件；如路径含有空格请加上引号；值为空时不写入文件 [-o ""]；(默认 result.csv)
 
@@ -114,7 +158,9 @@ https://github.com/masgzy/CloudflareST
 
 	flag.IntVar(&utils.PrintNum, "p", 10, "显示结果数量")
 	flag.StringVar(&task.IPFile, "f", "ip.txt", "IP段数据文件")
+	flag.BoolVar(&useIPv6, "ipv6", false, "使用 ipv6.txt 数据文件")
 	flag.StringVar(&task.IPText, "ip", "", "指定IP段数据")
+	flag.Var(&cfipsMode, "cfips", "使用或维护 Cloudflare 中国 IP 段")
 	flag.StringVar(&utils.Output, "o", "result.csv", "输出结果文件")
 
 	flag.BoolVar(&task.Disable, "dd", false, "禁用下载测速")
@@ -128,6 +174,7 @@ https://github.com/masgzy/CloudflareST
 	flag.BoolVar(&printVersion, "v", false, "打印程序版本")
 	flag.Usage = func() { fmt.Print(help) }
 	flag.Parse()
+	handleIPFlags(useIPv6, cfipsMode.value)
 
 	if task.MinSpeed > 0 && time.Duration(maxDelay)*time.Millisecond == utils.InputMaxDelay {
 		utils.Yellow.Println("[提示] 在使用 [-sl] 参数时，建议搭配 [-tl] 参数，以避免因凑不够 [-dn] 数量而一直测速...")
@@ -149,6 +196,43 @@ https://github.com/masgzy/CloudflareST
 			utils.Green.Println("当前为最新版本 [" + version + "]！")
 		}
 		os.Exit(0)
+	}
+}
+
+func handleIPFlags(useIPv6 bool, cfipsMode string) {
+	switch cfipsMode {
+	case "clear":
+		if err := task.ClearCFIPs(); err != nil {
+			fmt.Fprintf(os.Stderr, "清除 cfips 失败: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("已清除 ./cfips 下保存的 Cloudflare 中国 IP 段文件。")
+		os.Exit(0)
+	case "update":
+		fmt.Println("开始更新 Cloudflare 中国 IPv4/IPv6 IP 段...")
+		if err := task.UpdateCFIPs(); err != nil {
+			fmt.Fprintf(os.Stderr, "更新 cfips 失败: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("更新完成，已保存到 %s 和 %s\n", task.CFIPFilePath(false), task.CFIPFilePath(true))
+		os.Exit(0)
+	case "use":
+		if task.IPText != "" {
+			return
+		}
+		task.IPFile = task.CFIPFilePath(useIPv6)
+		downloaded, err := task.EnsureCFIPFile(useIPv6)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		if downloaded {
+			fmt.Printf("未检测到本地 cfips，已自动获取并保存到 %s\n", task.IPFile)
+		}
+	default:
+		if useIPv6 {
+			task.IPFile = "ipv6.txt"
+		}
 	}
 }
 

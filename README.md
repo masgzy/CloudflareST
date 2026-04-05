@@ -213,8 +213,16 @@ https://github.com/XIU2/CloudflareSpeedTest
         显示结果数量；测速后直接显示指定数量的结果，为 0 时不显示结果直接退出；(默认 10 个)
     -f ip.txt
         IP段数据文件；如路径含有空格请加上引号；支持其他 CDN IP段；(默认 ip.txt)
+    -ipv6
+        使用自带的 ipv6.txt 数据文件；等效于 [-f ipv6.txt]；若同时指定 [-cfips] 则改为使用 [./cfips/v6.txt]
     -ip 1.1.1.1,2.2.2.2/24,2606:4700::/32
         指定IP段数据；直接通过参数指定要测速的 IP 段数据，英文逗号分隔；(默认 空)
+    -cfips
+        使用 Cloudflare 中国 IP 段；默认使用 [./cfips/v4.txt]，若同时指定 [-ipv6] 则使用 [./cfips/v6.txt]；本地不存在时自动获取并保存
+    -cfips clear
+        清除已保存的 Cloudflare 中国 IP 段文件（仅执行清理后退出）
+    -cfips update
+        从 cloudflare-cn.com 更新 IPv4/IPv6 IP 段并保存到 [./cfips/v4.txt] [./cfips/v6.txt]（仅执行更新后退出）
     -o result.csv
         写入结果文件；如路径含有空格请加上引号；值为空时不写入文件 [-o ""]；(默认 result.csv)
         注意：在一些环境下使用 -o "" 可能会被忽略掉这个空参数导致报错，可加个空格 -o " " 解决
@@ -392,12 +400,26 @@ D:\ABC\cfst\cfst.exe -tl 200 -dn 20 -o " "
 cfst -f ip.txt
 
 # 指定自带的 IPv6 数据文件可测速这些 IPv6 地址
-# 另外，v2.1.0 版本后支持 IPv4+IPv6 混合测速并移除了 -ipv6 参数，因此一个文件内可以同时包含 IPv4+IPv6 地址
 cfst -f ipv6.txt
+cfst -ipv6
+
+# 使用已保存的 Cloudflare 中国 IPv4 段
+cfst -cfips
+
+# 使用已保存的 Cloudflare 中国 IPv6 段
+cfst -ipv6 -cfips
+
+# 更新 Cloudflare 中国 IPv4/IPv6 段到 ./cfips/v4.txt 和 ./cfips/v6.txt
+cfst -cfips update
+
+# 清除已保存的 Cloudflare 中国 IP 段
+cfst -cfips clear
 
 # 也可以直接通过参数指定要测速的 IP
 cfst -ip 1.1.1.1,2606:4700::/32
 ```
+
+> `-cfips` 会优先使用本地缓存文件；如果本地不存在，会自动从 `https://www.cloudflare-cn.com/ips-v4/` 和 `https://www.cloudflare-cn.com/ips-v6/` 获取并保存。`cfst -cfips update` 可用于手动刷新缓存。
 
 > 测速 IPv6 时，可能会注意到每次测速数量都不一样，了解原因： [#120](https://github.com/XIU2/CloudflareSpeedTest/issues/120)  
 > 因为 IPv6 太多（以亿为单位），且绝大部分 IP 段压根未启用，所以我只扫了一部分可用的 IPv6 段写到 `ipv6.txt` 文件中，有兴趣的可以自行扫描增删，ASN 数据源来自：[bgp.he.net](https://bgp.he.net/AS13335#_prefixes6)
