@@ -110,9 +110,9 @@ https://github.com/masgzy/CloudflareST
     -ip 1.1.1.1,2.2.2.2/24,2606:4700::/32
         指定IP段数据；直接通过参数指定要测速的 IP 段数据，英文逗号分隔；(默认 空)
     -cfips
-        使用已保存的 Cloudflare 中国 IP 段；默认使用 [./cfips/v4.txt]，若同时指定 [-ipv6] 则使用 [./cfips/v6.txt]
+        使用已保存的 Cloudflare IP 段；默认使用 [./cfips/v4.txt]，若同时指定 [-ipv6] 则使用 [./cfips/v6.txt]
     -cfips clear
-        清除已保存的 Cloudflare 中国 IP 段文件（仅执行清理后退出）
+        清除已保存的 Cloudflare IP 段文件（仅执行清理后退出）
     -cfips update
         从 cloudflare-cn.com 更新 IPv4/IPv6 IP 段并保存到 [./cfips/v4.txt] [./cfips/v6.txt]（仅执行更新后退出）
     -o result.csv
@@ -160,7 +160,7 @@ https://github.com/masgzy/CloudflareST
 	flag.StringVar(&task.IPFile, "f", "ip.txt", "IP段数据文件")
 	flag.BoolVar(&useIPv6, "ipv6", false, "使用 ipv6.txt 数据文件")
 	flag.StringVar(&task.IPText, "ip", "", "指定IP段数据")
-	flag.Var(&cfipsMode, "cfips", "使用或维护 Cloudflare 中国 IP 段")
+	flag.Var(&cfipsMode, "cfips", "使用或维护 Cloudflare IP 段")
 	flag.StringVar(&utils.Output, "o", "result.csv", "输出结果文件")
 
 	flag.BoolVar(&task.Disable, "dd", false, "禁用下载测速")
@@ -206,10 +206,10 @@ func handleIPFlags(useIPv6 bool, cfipsMode string) {
 			fmt.Fprintf(os.Stderr, "清除 cfips 失败: %v\n", err)
 			os.Exit(1)
 		}
-		fmt.Println("已清除 ./cfips 下保存的 Cloudflare 中国 IP 段文件。")
+		fmt.Println("已清除 ./cfips 下保存的 Cloudflare IP 段文件。")
 		os.Exit(0)
 	case "update":
-		fmt.Println("开始更新 Cloudflare 中国 IPv4/IPv6 IP 段...")
+		fmt.Println("开始更新 Cloudflare IPv4/IPv6 IP 段...")
 		if err := task.UpdateCFIPs(); err != nil {
 			fmt.Fprintf(os.Stderr, "更新 cfips 失败: %v\n", err)
 			os.Exit(1)

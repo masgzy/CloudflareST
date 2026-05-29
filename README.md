@@ -218,9 +218,9 @@ https://github.com/XIU2/CloudflareSpeedTest
     -ip 1.1.1.1,2.2.2.2/24,2606:4700::/32
         指定IP段数据；直接通过参数指定要测速的 IP 段数据，英文逗号分隔；(默认 空)
     -cfips
-        使用 Cloudflare 中国 IP 段；默认使用 [./cfips/v4.txt]，若同时指定 [-ipv6] 则使用 [./cfips/v6.txt]；本地不存在时自动获取并保存
+        使用 Cloudflare IP 段；默认使用 [./cfips/v4.txt]，若同时指定 [-ipv6] 则使用 [./cfips/v6.txt]；本地不存在时自动获取并保存
     -cfips clear
-        清除已保存的 Cloudflare 中国 IP 段文件（仅执行清理后退出）
+        清除已保存的 Cloudflare IP 段文件（仅执行清理后退出）
     -cfips update
         从 cloudflare-cn.com 更新 IPv4/IPv6 IP 段并保存到 [./cfips/v4.txt] [./cfips/v6.txt]（仅执行更新后退出）
     -o result.csv
