@@ -309,7 +309,7 @@ func checkFirstRun() {
 func checkUpdate() {
 	timeout := 10 * time.Second
 	client := http.Client{Timeout: timeout}
-	res, err := client.Get("https://edgeone.gh-proxy.org/https://github.com/masgzy/CloudflareST/raw/main/txt/version.txt")
+	res, err := client.Get("https://edgeone.gh-proxy.org/https://github.com/masgzy/CloudflareST/raw/main/version.txt")
 	if err != nil {
 		return
 	}
