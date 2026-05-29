@@ -4,22 +4,46 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/fatih/color"
 	"golang.org/x/term"
 )
 
 // 进度条配置常量
 const (
-	progressBarSpeed    = 0.2  // 进度条动画速度
-	waveWidth           = 16.0 // 波动宽度
-	speedFactor         = 0.3  // 速度因子
-	saturationBase      = 0.6  // 基础饱和度
-	refreshIntervalMs   = 40   // 刷新间隔（毫秒）
-	terminalDefaultWidth = 80  // 默认终端宽度
+	progressBarSpeed     = 0.2  // 进度条动画速度
+	waveWidth            = 16.0 // 波动宽度
+	speedFactor          = 0.3  // 速度因子
+	saturationBase       = 0.6  // 基础饱和度
+	refreshIntervalMs    = 40   // 刷新间隔（毫秒）
+	terminalDefaultWidth = 80   // 默认终端宽度
 )
+
+// supportsColorCache 缓存终端彩色支持检测结果
+var supportsColorCache *bool
+
+// SupportsColor 检测当前终端是否支持 ANSI 彩色输出
+// 仅首次调用时检测，后续使用缓存
+func SupportsColor() bool {
+	if supportsColorCache != nil {
+		return *supportsColorCache
+	}
+	// 先检查 NO_COLOR 环境变量（符合 no-color.org 标准）
+	if os.Getenv("NO_COLOR") != "" {
+		result := false
+		supportsColorCache = &result
+		return result
+	}
+	// 使用 fatih/color 的内置检测（TERM、isatty 等）
+	noColor := color.NoColor
+	result := !noColor
+	supportsColorCache = &result
+	return result
+}
 
 // 进度条亮度范围
 var progressBarBrightness = [2]float64{0.5, 0.3}
@@ -162,9 +186,21 @@ func (b *Bar) renderOnce() {
 	// 构建进度条字符串
 	barStr := b.buildProgressBar(barLength, filled, progress, phase, elapsed)
 
-	// 构建输出
-	output := fmt.Sprintf("\r\x1b[K\x1b[33m%s\x1b[0m %s %s \x1b[32m%s\x1b[0m %s",
-		textSnapshot.msg, barStr, b.inner.startStr, textSnapshot.prefix, b.inner.endStr)
+	// 构建输出（根据终端是否支持彩色选择不同格式）
+	var output string
+	if SupportsColor() {
+		output = fmt.Sprintf("\r\x1b[K\x1b[33m%s\x1b[0m %s %s \x1b[32m%s\x1b[0m %s",
+			textSnapshot.msg, barStr, b.inner.startStr, textSnapshot.prefix, b.inner.endStr)
+	} else {
+		// 纯文本回退：用 #- 字符组成进度条
+		percent := progress * 100
+		plainBar := fmt.Sprintf("[%s%s] %3.0f%%",
+			strings.Repeat("#", filled),
+			strings.Repeat("-", barLength-filled),
+			percent)
+		output = fmt.Sprintf("\r\033[K%s %s %s %s",
+			textSnapshot.msg, plainBar, textSnapshot.prefix, b.inner.endStr)
+	}
 
 	// 输出到终端
 	os.Stdout.WriteString(output)

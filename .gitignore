@@ -3,3 +3,5 @@ Releases
 *.exe
 *.csv
 *.bak
+.claude
+conversation*.txt

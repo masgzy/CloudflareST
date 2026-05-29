@@ -101,10 +101,17 @@ func TestDownloadSpeed(ipSet utils.PingDelaySet) (speedSet utils.DownloadSpeedSe
 				speed := atomic.LoadInt64(&progress.currentSpeed)
 				speedMB := float64(speed) / 1024 / 1024
 
-				// 更新进度条：显示 成功|失败(橙色) 进度条 速率(浅绿色)
-				msg := fmt.Sprintf("\x1b[33m%d|%d\x1b[0m", success, fail)
-				prefix := fmt.Sprintf("\x1b[92m%.2f\x1b[0m MB/s", speedMB)
-				bar.Update(done, msg, prefix)
+				// 更新进度条：显示 成功|失败 进度条 速率
+				var msg string
+				var pre string
+				if utils.SupportsColor() {
+					msg = fmt.Sprintf("\x1b[33m%d|%d\x1b[0m", success, fail)
+					pre = fmt.Sprintf("\x1b[92m%.2f\x1b[0m MB/s", speedMB)
+				} else {
+					msg = fmt.Sprintf("%d|%d", success, fail)
+					pre = fmt.Sprintf("%.2f MB/s", speedMB)
+				}
+				bar.Update(done, msg, pre)
 			}
 		}
 	}()
@@ -148,8 +155,14 @@ func TestDownloadSpeed(ipSet utils.PingDelaySet) (speedSet utils.DownloadSpeedSe
 	success := atomic.LoadInt32(&progress.successCount)
 	fail := atomic.LoadInt32(&progress.failCount)
 	done := int(atomic.LoadInt32(&progress.totalCount))
-	msg := fmt.Sprintf("\x1b[33m%d|%d\x1b[0m", success, fail)
-	prefix := "完成"
+	var msg, prefix string
+	if utils.SupportsColor() {
+		msg = fmt.Sprintf("\x1b[33m%d|%d\x1b[0m", success, fail)
+		prefix = "完成"
+	} else {
+		msg = fmt.Sprintf("%d|%d", success, fail)
+		prefix = "完成"
+	}
 	bar.Update(done, msg, prefix)
 
 	bar.Done()
@@ -167,10 +180,11 @@ func TestDownloadSpeed(ipSet utils.PingDelaySet) (speedSet utils.DownloadSpeedSe
 
 func getDialContext(ip *net.IPAddr) func(ctx context.Context, network, address string) (net.Conn, error) {
 	var fakeSourceAddr string
+	port := GetPortForIP(ip.IP)
 	if isIPv4(ip.String()) {
-		fakeSourceAddr = fmt.Sprintf("%s:%d", ip.String(), TCPPort)
+		fakeSourceAddr = fmt.Sprintf("%s:%d", ip.String(), port)
 	} else {
-		fakeSourceAddr = fmt.Sprintf("[%s]:%d", ip.String(), TCPPort)
+		fakeSourceAddr = fmt.Sprintf("[%s]:%d", ip.String(), port)
 	}
 	return func(ctx context.Context, network, address string) (net.Conn, error) {
 		dialer := &net.Dialer{}

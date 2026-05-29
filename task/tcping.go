@@ -105,11 +105,12 @@ func (p *Ping) start(ip *net.IPAddr) {
 // bool connectionSucceed float32 time
 func (p *Ping) tcping(ip *net.IPAddr) (bool, time.Duration) {
 	startTime := time.Now()
+	port := GetPortForIP(ip.IP)
 	var fullAddress string
 	if isIPv4(ip.String()) {
-		fullAddress = fmt.Sprintf("%s:%d", ip.String(), TCPPort)
+		fullAddress = fmt.Sprintf("%s:%d", ip.String(), port)
 	} else {
-		fullAddress = fmt.Sprintf("[%s]:%d", ip.String(), TCPPort)
+		fullAddress = fmt.Sprintf("[%s]:%d", ip.String(), port)
 	}
 
 	dialer := &net.Dialer{Timeout: tcpConnectTimeout}

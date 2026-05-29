@@ -53,11 +53,24 @@ func randIPEndWith(num byte) byte {
 	return byte(rand.Intn(int(num)))
 }
 
+var (
+	// IPPortMap 全局 IP 到自定义端口映射（0 表示使用全局 TCPPort 默认值）
+	IPPortMap = make(map[string]int)
+)
+
+func GetPortForIP(ip net.IP) int {
+	if port, ok := IPPortMap[ip.String()]; ok && port > 0 {
+		return port
+	}
+	return TCPPort
+}
+
 type IPRanges struct {
-	ips     []*net.IPAddr
-	mask    string
-	firstIP net.IP
-	ipNet   *net.IPNet
+	ips         []*net.IPAddr
+	mask        string
+	firstIP     net.IP
+	ipNet       *net.IPNet
+	currentPort int // 当前 IP/CIDR 区块的端口（解析时设置，appendIP 时使用）
 }
 
 func newIPRanges() *IPRanges {
@@ -66,28 +79,79 @@ func newIPRanges() *IPRanges {
 	}
 }
 
+// 提取端口号，返回剥离端口后的 IP 字符串和端口号（0 表示使用全局默认）
+func extractPort(ip string) (cleanIP string, port int) {
+	port = 0 // 0 表示使用全局 TCPPort
+	cleanIP = ip
+
+	// IPv6 格式（含 [] 包裹）: [::1]:443 或 [2606:4700::/32]:443
+	if strings.HasPrefix(ip, "[") {
+		if idx := strings.LastIndex(ip, "]:"); idx > 0 {
+			p, err := strconv.Atoi(ip[idx+2:])
+			if err == nil && p > 0 && p < 65536 {
+				port = p
+				cleanIP = ip[:idx+1] // 保留 [...] 部分
+				return
+			}
+		}
+		return // [::1] 或 [2606:4700::/32]，无端口
+	}
+
+	// IPv4 网段含端口: 1.1.1.0/24:443
+	if slashIdx := strings.Index(ip, "/"); slashIdx > 0 {
+		if colonIdx := strings.Index(ip[slashIdx:], ":"); colonIdx > 0 {
+			p, err := strconv.Atoi(ip[slashIdx+colonIdx+1:])
+			if err == nil && p > 0 && p < 65536 {
+				port = p
+				cleanIP = ip[:slashIdx+colonIdx]
+				return
+			}
+		}
+		return // 1.1.1.0/24，无端口
+	}
+
+	// 单 IP（无 /）: 1.1.1.1:443 或 1.1.1.1
+	// 注意 IPv6 不含 [] 时可能有多个冒号（::1），仅当恰好一个冒号时视作 IPv4:端口
+	colonCount := strings.Count(ip, ":")
+	if colonCount == 1 {
+		lastColon := strings.LastIndex(ip, ":")
+		p, err := strconv.Atoi(ip[lastColon+1:])
+		if err == nil && p > 0 && p < 65536 {
+			port = p
+			cleanIP = ip[:lastColon]
+		}
+	}
+	// colonCount==0: 纯 IPv4，无端口；colonCount>1: IPv6，无端口
+	return
+}
+
 // 如果是单独 IP 则加上子网掩码，反之则获取子网掩码(r.mask)
-func (r *IPRanges) fixIP(ip string) string {
+func (r *IPRanges) fixIP(ip string) (cleanIP string, port int) {
+	cleanIP, port = extractPort(ip)
+
 	// 如果不含有 '/' 则代表不是 IP 段，而是一个单独的 IP，因此需要加上 /32 /128 子网掩码
-	if i := strings.IndexByte(ip, '/'); i < 0 {
-		if isIPv4(ip) {
+	if i := strings.IndexByte(cleanIP, '/'); i < 0 {
+		if isIPv4(cleanIP) {
 			r.mask = "/32"
 		} else {
 			r.mask = "/128"
 		}
-		ip += r.mask
+		cleanIP += r.mask
 	} else {
-		r.mask = ip[i:]
+		r.mask = cleanIP[i:]
 	}
-	return ip
+	return
 }
 
-// 解析 IP 段，获得 IP、IP 范围、子网掩码
+// 解析 IP 段，获得 IP、IP 范围、子网掩码，以及端口
 func (r *IPRanges) parseCIDR(ip string) {
 	var err error
-	if r.firstIP, r.ipNet, err = net.ParseCIDR(r.fixIP(ip)); err != nil {
-		log.Fatalln("ParseCIDR err", err)
+	cleanIP, port := r.fixIP(ip)
+	if r.firstIP, r.ipNet, err = net.ParseCIDR(cleanIP); err != nil {
+		log.Fatalln("ParseCIDR err", ip, err)
 	}
+	// 存储当前 CIDR 区块对应的端口（后续 appendIP 时使用）
+	r.currentPort = port
 }
 
 func (r *IPRanges) appendIPv4(d byte) {
@@ -96,6 +160,9 @@ func (r *IPRanges) appendIPv4(d byte) {
 
 func (r *IPRanges) appendIP(ip net.IP) {
 	r.ips = append(r.ips, &net.IPAddr{IP: ip})
+	if r.currentPort > 0 {
+		IPPortMap[ip.String()] = r.currentPort
+	}
 }
 
 // 返回第四段 ip 的最小值及可用数目
