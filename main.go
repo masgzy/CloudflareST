@@ -109,6 +109,8 @@ https://github.com/masgzy/CloudflareST
         使用自带的 ipv6.txt 数据文件；等效于 [-f ipv6.txt]；若同时指定 [-cfips] 则改为使用 [./cfips/v6.txt]
     -ip 1.1.1.1,2.2.2.2/24,2606:4700::/32
         指定IP段数据；直接通过参数指定要测速的 IP 段数据，英文逗号分隔；(默认 空)
+        支持指定端口：单个IP → 1.1.1.1:443、IPv4网段 → 1.1.1.0/24:443、IPv6 → [::1]:443、IPv6网段 → [2606:4700::/32]:443
+        指定端口时不要带 /32 后缀，程序会自动处理
     -cfips
         使用已保存的 Cloudflare IP 段；默认使用 [./cfips/v4.txt]，若同时指定 [-ipv6] 则使用 [./cfips/v6.txt]
     -cfips clear
