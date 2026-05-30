@@ -27,7 +27,7 @@
 
 **为保证运行时终端的简洁和保留原作者署名，声明信息仅在首次运行时输出**(判断靠.first_run文件，此文件也会放在发行版的压缩包里面)
 
-**注:** 在修改本项目时，我借助了生成式AI大语言模型(使用的模型包括GLM-5,MiniMax-m2.5等，由于iflow-cli的停止运营后面改用ChatGPT-5.4及Qwen-Cli)来进行一些代码修改。最终的所有修改均由我本人决策并合并，并由我本人进行测试，以确保项目质量。部分文档内容使用Deepseek-v3.2进行生成。
+**注:** 在修改本项目时，我借助了生成式AI大语言模型(使用的模型包括GLM-5,MiniMax-m2.5,MiniMax-m2.7,DeepSeek-v4-pro,mimo-v2.5-pro等)来进行一些代码修改。最终的所有修改均由我本人决策并合并，并由我本人进行测试，以确保项目质量。部分文档和发行版内容使用Deepseek和mimo-v2.5-pro进行生成。
 
 我会不定时地查看[原项目](https://github.com/XIU2/CloudflareSpeedTest)的更新和[GuangYu-yu/CloudflareST-Rust](https://github.com/GuangYu-yu/CloudflareST-Rust)的更新，并同步，部分改动可能不会同步。
 
@@ -41,21 +41,7 @@
 1. 下载编译好的可执行文件（ [Github Releases](https://github.com/masgzy/CloudflareST/releases)  ）并解压。  
 2. 双击运行 `cfst.exe` 文件（Windows 系统），等待测速完成...
 
-<details>
-<summary><code><strong>「 点击查看 Windows 系统下其他安装方式」</strong></code></summary>
 
-****
-
-如果你有 scoop(Windows 下的命令行安装程序)，则可以这样安装:
-
-```sh
-# 添加最多人使用的中文软件包仓库：dorado
-scoop bucket add dorado https://github.com/chawyehsu/dorado
-# 安装cloudflare-speedtest
-scoop install dorado/cloudflare-speedtest
-```
-(注: 此处为原作者的软件包)
-</details>
 <details>
 <summary><code><strong>「 点击查看 Linux 系统下的使用示例 」</strong></code></summary>
 
