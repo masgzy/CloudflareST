@@ -176,9 +176,10 @@ IP 地址,已发送,已接收,丢包率,平均延迟,下载速度(MB/s),地区�
 ```Dart
 C:\>cfst -h
 
-CloudflareSpeedTest vX.X.X
+CloudflareST vX.X.X-mod-X
+本项目基于XIU2/CloudflareSpeedTest进行修改，使用GPL3.0协议开源
 测试各个 CDN 或网站所有 IP 的延迟和速度，获取最快 IP (IPv4+IPv6)！
-https://github.com/XIU2/CloudflareSpeedTest
+https://github.com/masgzy/CloudflareST
 
 参数：
     -n 200
