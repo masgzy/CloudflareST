@@ -95,7 +95,7 @@ jobs:
 
     steps:
       - name: 检出代码
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: 设置 Go 环境
         uses: actions/setup-go@v6
@@ -220,7 +220,7 @@ jobs:
 
     steps:
       - name: 检出代码
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: 设置 Go 1.20 环境
         uses: actions/setup-go@v6
@@ -308,16 +308,11 @@ jobs:
       contents: write
     steps:
       - name: 检出代码
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
-      - name: 更新 version.txt
-        run: |
-          echo "${{ inputs.tag }}" > version.txt
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add version.txt
-          git diff --cached --quiet || git commit -m "chore: update version to ${{ inputs.tag }}"
-          git push
+      # 注意：此工作流不再自动 commit/push version.txt。
+      # version.txt 由开发者本地手动更新并 push，避免 actions 越权改 main 分支。
+      # -v 自动更新逻辑读取的是远端 version.txt，所以这里只需保证 release 资产已上传。
 
       - name: 下载所有构建产物
         uses: actions/download-artifact@v7
@@ -333,7 +328,7 @@ jobs:
           ls -la release_assets/
 
       - name: 创建发行版
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ inputs.tag }}
           name: Release ${{ inputs.tag }}
