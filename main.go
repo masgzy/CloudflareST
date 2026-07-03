@@ -29,10 +29,7 @@ func init() {
 	var printVersion bool
 	var useIPv6 bool
 	var help = `
-CloudflareSpeedTest ` + version + `
-本项目基于XIU2/CloudflareSpeedTest进行修改，使用GPL3.0协议开源
-测试各个 CDN 或网站所有 IP 的延迟和速度，获取最快 IP (IPv4+IPv6)！
-https://github.com/masgzy/CloudflareST
+\x1b[34;1m# CloudflareST\x1b[0m ` + version + ` 本项目基于XIU2/CloudflareSpeedTest进行修改，使用GPL3.0协议开源，测试各个 CDN 或网站所有 IP 的延迟和速度，获取最快 IP (IPv4+IPv6)！https://github.com/masgzy/CloudflareST
 
 参数：
     -n 200
@@ -132,7 +129,7 @@ https://github.com/masgzy/CloudflareST
 	flag.BoolVar(&utils.Debug, "debug", false, "调试输出模式")
 
 	flag.BoolVar(&printVersion, "v", false, "打印程序版本")
-	flag.Usage = func() { fmt.Print(help) }
+	flag.Usage = func() { fmt.Print(strings.ReplaceAll(help, "\\x1b", "\x1b")) }
 	flag.Parse()
 	handleIPFlags(useIPv6)
 

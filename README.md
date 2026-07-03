@@ -19,7 +19,7 @@
 
 **本项目是一个基于以下两个优秀开源项目的衍生版本，旨在结合二者优点并优化使用体验：**
 
-核心基础：本项目主体基于 [XIU2/CloudflareSpeedTest](https://github.com/XIU2/CloudflareSpeedTest)  (v2.3.4) 进行修改。该原项目由 [XIU2](https://github.com/XIU2)  使用 Go 语言编写，在此感谢其开创性工作。
+核心基础：本项目主体基于 [XIU2/CloudflareSpeedTest](https://github.com/XIU2/CloudflareSpeedTest)  (v2.3.5) 进行修改。该原项目由 [XIU2](https://github.com/XIU2)  使用 Go 语言编写，在此感谢其开创性工作。
 
 功能与设计参考：在开发过程中，参考并借鉴了 [GuangYu-yu/CloudflareST-Rust](https://github.com/GuangYu-yu/CloudflareST-Rust)  项目的部分功能设计与实现思路。特别感谢其维护者 [GuangYu-yu](https://github.com/GuangYu-yu)  的贡献。
 
@@ -27,7 +27,7 @@
 
 **为保证运行时终端的简洁和保留原作者署名，声明信息仅在首次运行时输出**(判断靠.first_run文件，此文件也会放在发行版的压缩包里面)
 
-**注:** 在修改本项目时，我借助了生成式AI大语言模型(使用的模型包括GLM-5,MiniMax-m2.5,MiniMax-m2.7,DeepSeek-v4-pro,mimo-v2.5-pro等)来进行一些代码修改。最终的所有修改均由我本人决策并合并，并由我本人进行测试，以确保项目质量。部分文档和发行版内容使用Deepseek和mimo-v2.5-pro进行生成。
+**注:** 在修改本项目时，我借助了生成式AI大语言模型(使用的模型包括GLM-5,MiniMax-m2.5,MiniMax-m2.7,DeepSeek-v4-pro,mimo-v2.5-pro,MiniMax-m3等)来进行一些代码修改。最终的所有修改均由我本人决策并合并，并由我本人进行测试，以确保项目质量。部分文档和发行版内容使用Deepseek和mimo-v2.5-pro和MiniMax-m3进行生成。
 
 我会不定时地查看[原项目](https://github.com/XIU2/CloudflareSpeedTest)的更新和[GuangYu-yu/CloudflareST-Rust](https://github.com/GuangYu-yu/CloudflareST-Rust)的更新，并同步，部分改动可能不会同步。
 
