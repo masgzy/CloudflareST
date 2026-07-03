@@ -115,6 +115,16 @@ jobs:
           fi
           echo "ARCHIVE_NAME=cfst_${OS_NAME}_${ARCH}${{ matrix.ext }}" >> $GITHUB_OUTPUT
 
+      - name: 下载 Cloudflare 官方 IP 段
+        shell: bash
+        run: |
+          # 写入 cf.txt / cf6.txt 供用户使用 -f cf.txt / -f cf6.txt
+          curl -fsSL https://www.cloudflare.com/ips-v4/ -o cf.txt
+          curl -fsSL https://www.cloudflare.com/ips-v6/ -o cf6.txt
+          # 兜底：末尾补换行
+          [ -n "$(tail -c1 cf.txt)" ] && echo "" >> cf.txt || true
+          [ -n "$(tail -c1 cf6.txt)" ] && echo "" >> cf6.txt || true
+
       - name: 编译二进制文件
         shell: bash
         run: |
@@ -133,7 +143,7 @@ jobs:
           cp cfst.exe release/cfst.exe
           cp script/*.bat release/
           cp -r txt/win/* release/
-          cp ip.txt ipv6.txt release/
+          cp ip.txt ipv6.txt cf.txt cf6.txt release/
           touch release/.first_run
           cd release
           zip -r ../${{ steps.set_name.outputs.ARCHIVE_NAME }} .
@@ -154,7 +164,7 @@ jobs:
             fi
           done
           cp -r txt/mac/* release/
-          cp ip.txt ipv6.txt release/
+          cp ip.txt ipv6.txt cf.txt cf6.txt release/
           touch release/.first_run
           cd release
           zip -r ../${{ steps.set_name.outputs.ARCHIVE_NAME }} .
@@ -173,7 +183,7 @@ jobs:
             fi
           done
           cp -r txt/linux/* release/
-          cp ip.txt ipv6.txt release/
+          cp ip.txt ipv6.txt cf.txt cf6.txt release/
           touch release/.first_run
           cd release
           tar -czvf ../${{ steps.set_name.outputs.ARCHIVE_NAME }} .
@@ -230,6 +240,14 @@ jobs:
           fi
           echo "ARCHIVE_NAME=cfst_${OS_NAME}_${ARCH}_old${{ matrix.ext }}" >> $GITHUB_OUTPUT
 
+      - name: 下载 Cloudflare 官方 IP 段
+        shell: bash
+        run: |
+          curl -fsSL https://www.cloudflare.com/ips-v4/ -o cf.txt
+          curl -fsSL https://www.cloudflare.com/ips-v6/ -o cf6.txt
+          [ -n "$(tail -c1 cf.txt)" ] && echo "" >> cf.txt || true
+          [ -n "$(tail -c1 cf6.txt)" ] && echo "" >> cf6.txt || true
+
       - name: 编译二进制文件
         shell: bash
         run: |
@@ -247,7 +265,7 @@ jobs:
           cp cfst.exe release/cfst.exe
           cp script/*.bat release/
           cp -r txt/win/* release/
-          cp ip.txt ipv6.txt release/
+          cp ip.txt ipv6.txt cf.txt cf6.txt release/
           touch release/.first_run
           cd release
           zip -r ../${{ steps.set_name.outputs.ARCHIVE_NAME }} .
@@ -268,7 +286,7 @@ jobs:
             fi
           done
           cp -r txt/mac/* release/
-          cp ip.txt ipv6.txt release/
+          cp ip.txt ipv6.txt cf.txt cf6.txt release/
           touch release/.first_run
           cd release
           zip -r ../${{ steps.set_name.outputs.ARCHIVE_NAME }} .

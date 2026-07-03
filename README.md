@@ -91,6 +91,32 @@ chmod +x cfst
 > [!NOTE]
 > 注意！本软件仅适用于网站，**不支持给使用 UDP 协议的 Cloudflare WARP 优选 IP**，具体见：[#392](https://github.com/XIU2/CloudflareSpeedTest/discussions/392)
 
+### 根据你的平台选择下载
+
+下载链接统一格式：`https://github.com/masgzy/CloudflareST/releases/latest/download/cfst_系统_架构.tar.gz` 或 `.zip`。可直接运行 `./cfst -v` 让程序自动识别并下载覆盖。
+
+| 系统        | 架构       | 位数   | 文件                                                                                                | 备注                                  |
+|-------------|------------|--------|-----------------------------------------------------------------------------------------------------|---------------------------------------|
+| macOS       | x86_64     | 64 位  | [cfst_darwin_amd64.zip](https://github.com/masgzy/CloudflareST/releases/latest/download/cfst_darwin_amd64.zip)         | 最低要求 macOS 11                     |
+| macOS       | ARM v8     | 64 位  | [cfst_darwin_arm64.zip](https://github.com/masgzy/CloudflareST/releases/latest/download/cfst_darwin_arm64.zip)         | 最低要求 macOS 11                     |
+| macOS       | x86_64     | 64 位  | [cfst_darwin_amd64_old.zip](https://github.com/masgzy/CloudflareST/releases/latest/download/cfst_darwin_amd64_old.zip) | 适用于 macOS 10 及旧版本              |
+| macOS       | ARM v8     | 64 位  | [cfst_darwin_arm64_old.zip](https://github.com/masgzy/CloudflareST/releases/latest/download/cfst_darwin_arm64_old.zip) | 适用于 macOS 10 及旧版本              |
+| Linux       | x86        | 32 位  | [cfst_linux_386.tar.gz](https://github.com/masgzy/CloudflareST/releases/latest/download/cfst_linux_386.tar.gz)         | 最低要求 Linux 内核 3.2（下同）       |
+| Linux       | x86_64     | 64 位  | [cfst_linux_amd64.tar.gz](https://github.com/masgzy/CloudflareST/releases/latest/download/cfst_linux_amd64.tar.gz)     | ...                                   |
+| Linux       | ARM v8     | 64 位  | [cfst_linux_arm64.tar.gz](https://github.com/masgzy/CloudflareST/releases/latest/download/cfst_linux_arm64.tar.gz)     | ARM v8 即 AArch64                     |
+| Linux       | ARM v5     | 32 位  | [cfst_linux_armv5.tar.gz](https://github.com/masgzy/CloudflareST/releases/latest/download/cfst_linux_armv5.tar.gz)     | ...                                   |
+| Linux       | ARM v6     | 32 位  | [cfst_linux_armv6.tar.gz](https://github.com/masgzy/CloudflareST/releases/latest/download/cfst_linux_armv6.tar.gz)     | ...                                   |
+| Linux       | ARM v7     | 32 位  | [cfst_linux_armv7.tar.gz](https://github.com/masgzy/CloudflareST/releases/latest/download/cfst_linux_armv7.tar.gz)     | ...                                   |
+| Linux       | Mips       | 32 位  | [cfst_linux_mips.tar.gz](https://github.com/masgzy/CloudflareST/releases/latest/download/cfst_linux_mips.tar.gz)       | ...                                   |
+| Linux       | Mips       | 64 位  | [cfst_linux_mips64.tar.gz](https://github.com/masgzy/CloudflareST/releases/latest/download/cfst_linux_mips64.tar.gz)   | ...                                   |
+| Linux       | Mipsle     | 32 位  | [cfst_linux_mipsle.tar.gz](https://github.com/masgzy/CloudflareST/releases/latest/download/cfst_linux_mipsle.tar.gz)   | ...                                   |
+| Linux       | Mipsle     | 64 位  | [cfst_linux_mips64le.tar.gz](https://github.com/masgzy/CloudflareST/releases/latest/download/cfst_linux_mips64le.tar.gz) | ...                                   |
+| Windows     | x86        | 32 位  | [cfst_windows_386.zip](https://github.com/masgzy/CloudflareST/releases/latest/download/cfst_windows_386.zip)           | 最低要求 Windows 10 + Server 2016     |
+| Windows     | x86_64     | 64 位  | [cfst_windows_amd64.zip](https://github.com/masgzy/CloudflareST/releases/latest/download/cfst_windows_amd64.zip)       | 最低要求 Windows 10 + Server 2016     |
+| Windows     | x86        | 32 位  | [cfst_windows_386_old.zip](https://github.com/masgzy/CloudflareST/releases/latest/download/cfst_windows_386_old.zip)   | 适用于 Windows 7/8 + Server 2008/2012 |
+| Windows     | x86_64     | 64 位  | [cfst_windows_amd64_old.zip](https://github.com/masgzy/CloudflareST/releases/latest/download/cfst_windows_amd64_old.zip) | 适用于 Windows 7/8 + Server 2008/2012 |
+| Windows     | ARM v8     | 64 位  | [cfst_windows_arm64.zip](https://github.com/masgzy/CloudflareST/releases/latest/download/cfst_windows_arm64.zip)       | 提供给 ARM 架构的，别下错了          |
+
 ### 结果示例
 
 测速完毕后，默认会显示**最快的 10 个 IP**，示例（仅为输出内容示例）：
@@ -200,17 +226,11 @@ https://github.com/XIU2/CloudflareSpeedTest
     -f ip.txt
         IP段数据文件；如路径含有空格请加上引号；支持其他 CDN IP段；(默认 ip.txt)
     -ipv6
-        使用自带的 ipv6.txt 数据文件；等效于 [-f ipv6.txt]；若同时指定 [-cfips] 则改为使用 [./cfips/v6.txt]
+        使用自带的 ipv6.txt 数据文件；等效于 [-f ipv6.txt]
     -ip 1.1.1.1,2.2.2.2/24,2606:4700::/32
         指定IP段数据；直接通过参数指定要测速的 IP 段数据，英文逗号分隔；(默认 空)
         支持指定端口：单个IP → 1.1.1.1:443、IPv4网段 → 1.1.1.0/24:443、IPv6 → [::1]:443、IPv6网段 → [2606:4700::/32]:443
         注意：指定端口时不要带 /32 后缀，程序会自动处理
-    -cfips
-        使用 Cloudflare IP 段；默认使用 [./cfips/v4.txt]，若同时指定 [-ipv6] 则使用 [./cfips/v6.txt]；本地不存在时自动获取并保存
-    -cfips clear
-        清除已保存的 Cloudflare IP 段文件（仅执行清理后退出）
-    -cfips update
-        从 cloudflare-cn.com 更新 IPv4/IPv6 IP 段并保存到 [./cfips/v4.txt] [./cfips/v6.txt]（仅执行更新后退出）
     -o result.csv
         写入结果文件；如路径含有空格请加上引号；值为空时不写入文件 [-o ""]；(默认 result.csv)
         注意：在一些环境下使用 -o "" 可能会被忽略掉这个空参数导致报错，可加个空格 -o " " 解决
@@ -229,7 +249,9 @@ https://github.com/XIU2/CloudflareSpeedTest
         例如：HTTPing 延迟测速过程中，因为 HTTP 状态码不符合或测速地址有问题或超时等原因而终止测速
         例如：下载测速过程中，因为下载测速地址有问题（被阻断、403状态码、超时）等原因而终止测速（导致显示 0.00）
     -v
-        打印程序版本 + 检查版本更新
+        打印程序版本 + 检查版本更新；发现新版本时询问 Y/n，确认后自动从
+        https://github.com/masgzy/CloudflareST/releases/latest/download/cfst_系统_架构.<ext>
+        下载并替换当前二进制（Windows 走 .new + 脚本完成覆盖并自动重启）
     -h
         打印帮助说明
 ```
@@ -387,27 +409,22 @@ D:\ABC\cfst\cfst.exe -tl 200 -dn 20 -o " "
 # 指定自带的 IPv4 数据文件可测速这些 IPv4 地址（-f 默认值就是 ip.txt，所以该参数可省略）
 cfst -f ip.txt
 
+# 使用随 release 自带的 Cloudflare 官方 IPv4 段（cf.txt 由 actions 工作流在 build 时从 https://www.cloudflare.com/ips-v4/ 拉取）
+cfst -f cf.txt
+
+# 测速 Cloudflare 官方 IPv6 段
+cfst -f cf6.txt
+
 # 指定自带的 IPv6 数据文件可测速这些 IPv6 地址
 cfst -f ipv6.txt
 cfst -ipv6
 
-# 使用已保存的 Cloudflare 中国 IPv4 段
-cfst -cfips
-
-# 使用已保存的 Cloudflare 中国 IPv6 段
-cfst -ipv6 -cfips
-
-# 更新 Cloudflare 中国 IPv4/IPv6 段到 ./cfips/v4.txt 和 ./cfips/v6.txt
-cfst -cfips update
-
-# 清除已保存的 Cloudflare 中国 IP 段
-cfst -cfips clear
-
-# 也可以直接通过参数指定要测速的 IP
+# 也可以直接通过参数指定要测速的 IP（支持指定端口）
 cfst -ip 1.1.1.1,2606:4700::/32
+cfst -ip 1.1.1.1:443,2.2.2.0/24:8443
 ```
 
-> `-cfips` 会优先使用本地缓存文件；如果本地不存在，会自动从 `https://www.cloudflare-cn.com/ips-v4/` 和 `https://www.cloudflare-cn.com/ips-v6/` 获取并保存。`cfst -cfips update` 可用于手动刷新缓存。
+> `cf.txt` / `cf6.txt` 在每次 GitHub Actions 构建时从 `https://www.cloudflare.com/ips-v4/` 和 `https://www.cloudflare.com/ips-v6/` 拉取，随 release 资源一起发布；旧版 `-cfips` 及其子命令已移除。
 
 > 测速 IPv6 时，可能会注意到每次测速数量都不一样，了解原因： [#120](https://github.com/XIU2/CloudflareSpeedTest/issues/120)  
 > 因为 IPv6 太多（以亿为单位），且绝大部分 IP 段压根未启用，所以我只扫了一部分可用的 IPv6 段写到 `ipv6.txt` 文件中，有兴趣的可以自行扫描增删，ASN 数据源来自：[bgp.he.net](https://bgp.he.net/AS13335#_prefixes6)

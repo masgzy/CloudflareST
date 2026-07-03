@@ -42,6 +42,17 @@ type PingData struct {
 	Received int
 	Delay    time.Duration
 	Colo     string
+	// Port 单个 IP 的自定义测速端口，0 表示使用全局默认（utils.TCPPort）
+	Port int
+}
+
+// 拼接 IP 与端口：没有端口时只返回 IP
+func (cf *PingData) formatIPWithPort() string {
+	base := cf.IP.String()
+	if cf.Port > 0 {
+		return base + ":" + strconv.Itoa(cf.Port)
+	}
+	return base
 }
 
 type CloudflareIPData struct {
@@ -59,9 +70,11 @@ func (cf *CloudflareIPData) getLossRate() float32 {
 	return cf.lossRate
 }
 
+// 拼接 IP 与端口：没有端口时只返回 IP
+// （保留此包装供 toString 使用，逻辑已移至 PingData.formatIPWithPort）
 func (cf *CloudflareIPData) toString() []string {
 	result := make([]string, 7)
-	result[0] = cf.IP.String()
+	result[0] = cf.PingData.formatIPWithPort()
 	result[1] = strconv.Itoa(cf.Sended)
 	result[2] = strconv.Itoa(cf.Received)
 	result[3] = strconv.FormatFloat(float64(cf.getLossRate()), 'f', 2, 32)
@@ -178,10 +191,12 @@ func (s DownloadSpeedSet) Print() {
 	}
 	headFormat := "%-16s%-5s%-5s%-5s%-6s%-12s%-5s\n"
 	dataFormat := "%-18s%-8s%-8s%-8s%-10s%-16s%-8s\n"
-	for i := 0; i < PrintNum; i++ { // 如果要输出的 IP 中包含 IPv6，那么就需要调整一下间隔
+	ipv6Format := "%-40s%-5s%-5s%-5s%-6s%-12s%-5s\n"
+	ipv6DataFormat := "%-42s%-8s%-8s%-8s%-10s%-16s%-8s\n"
+	for i := 0; i < PrintNum; i++ { // 如果要输出的 IP 中包含 IPv6 或端口(>15字符)，则调整列宽
 		if len(dateString[i][0]) > 15 {
-			headFormat = "%-40s%-5s%-5s%-5s%-6s%-12s%-5s\n"
-			dataFormat = "%-42s%-8s%-8s%-8s%-10s%-16s%-8s\n"
+			headFormat = ipv6Format
+			dataFormat = ipv6DataFormat
 			break
 		}
 	}
