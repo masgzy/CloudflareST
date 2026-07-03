@@ -215,6 +215,7 @@ func (p *Ping) tcpingHandler(ip *net.IPAddr) {
 				Received: recv,
 				Delay:    avgDelay,
 				Colo:     colo,
+				Port:     GetPortForIP(ip.IP),
 			}
 			// 尝试添加数据
 			p.tryAppendIPData(data)
