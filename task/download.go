@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	bufferSize                     = 1024
+	bufferSize                     = 32 * 1024 // 32KB，减少高速下载时的 IO 调用次数
 	defaultURL                     = "https://download.parallels.com/desktop/v15/15.1.5-47309/ParallelsDesktop-15.1.5-47309.dmg"
 	defaultTimeout                 = 10 * time.Second
 	defaultDisableDownload         = false
@@ -284,15 +284,13 @@ func downloadHandlerWithProgress(ip *net.IPAddr, progress *DownloadProgress) (fl
 	contentLength := response.ContentLength // 文件大小
 	buffer := make([]byte, bufferSize)
 
-	var (
-		contentRead     int64 = 0
-		timeSlice             = Timeout / 100
-		timeCounter           = 1
-		lastContentRead int64 = 0
-	)
+	var contentRead int64 = 0
 
-	var nextTime = timeStart.Add(timeSlice * time.Duration(timeCounter))
-	e := ewma.NewMovingAverage()
+	// EWMA 用于实时速度显示：平滑「全局平均速度」的变化趋势，使实时显示逐渐收敛到最终结果
+	// 参数 10 表示约 10 个样本（1 秒）的衰减窗口，比默认的 30 秒窗口更适合短时测速
+	e := ewma.NewMovingAverage(10)
+	lastSampleTime := timeStart
+	const sampleInterval = 100 * time.Millisecond // 采样间隔
 
 	// 循环计算，如果文件下载完了（两者相等），则退出循环（终止测速）
 	for contentLength != contentRead {
@@ -301,52 +299,41 @@ func downloadHandlerWithProgress(ip *net.IPAddr, progress *DownloadProgress) (fl
 			break
 		}
 		currentTime := time.Now()
-		if currentTime.After(nextTime) {
-			timeCounter++
-			nextTime = timeStart.Add(timeSlice * time.Duration(timeCounter))
-			e.Add(float64(contentRead - lastContentRead))
-
-			// 更新实时速度
-			if timeCounter > 1 {
-				timeDiff := currentTime.Sub(timeStart.Add(timeSlice * time.Duration(timeCounter - 2)))
-				if timeDiff > 0 {
-					speed := int64(float64(contentRead-lastContentRead) / timeDiff.Seconds())
-					atomic.StoreInt64(&progress.currentSpeed, speed)
-				}
-			}
-
-			lastContentRead = contentRead
-		}
 		// 如果超出下载测速时间，则退出循环（终止测速）
 		if currentTime.After(timeEnd) {
 			break
 		}
+		// 定期采样：计算全局平均速度（总下载量 / 已用时间）并用 EWMA 平滑
+		// 与 speedtest-go 的做法一致：EWMA 平滑的是全局平均速度，而非瞬时速度
+		// 这样实时显示会逐渐收敛到最终结果，减少两者之间的差异
+		if currentTime.Sub(lastSampleTime) >= sampleInterval {
+			elapsed := currentTime.Sub(timeStart).Seconds()
+			if elapsed > 0 {
+				globalAvg := float64(contentRead) / elapsed
+				e.Add(globalAvg)
+				atomic.StoreInt64(&progress.currentSpeed, int64(e.Value()))
+			}
+			lastSampleTime = currentTime
+		}
 		bufferRead, err := response.Body.Read(buffer)
+		contentRead += int64(bufferRead)
 		if err != nil {
 			if err != io.EOF { // 如果文件下载过程中遇到报错（如 Timeout），且并不是因为文件下载完了，则退出循环（终止测速）
 				break
 			} else if contentLength == -1 { // 文件下载完成 且 文件大小未知，则退出循环（终止测速）
 				break
 			}
-			// 获取上个时间片
-			lastTimeSlice := timeStart.Add(timeSlice * time.Duration(timeCounter-1))
-			// 下载数据量 / (用当前时间 - 上个时间片/ 时间片)
-			e.Add(float64(contentRead-lastContentRead) / (float64(currentTime.Sub(lastTimeSlice)) / float64(timeSlice)))
-		}
-		contentRead += int64(bufferRead)
-
-		// 更新实时速度（更频繁的更新）
-		if timeCounter > 1 {
-			elapsed := time.Since(timeStart)
-			if elapsed > 0 {
-				speed := int64(float64(contentRead) / elapsed.Seconds())
-				atomic.StoreInt64(&progress.currentSpeed, speed)
-			}
+			// EOF 且文件大小已知：文件下载完成，循环条件会自动退出
 		}
 	}
 
-	// 最终速度计算
-	finalSpeed := e.Value() / (Timeout.Seconds() / 120)
+	// 最终速度：总下载量 / 实际耗时（最准确，与 speedtest-go 的 GetAvgDownloadRate 一致）
+	// 不使用 EWMA，因为 EWMA 对近期数据加权更大，不代表整个测试期间的真实平均速度
+	actualElapsed := time.Since(timeStart).Seconds()
+	var finalSpeed float64
+	if actualElapsed > 0 && contentRead > 0 {
+		finalSpeed = float64(contentRead) / actualElapsed
+	}
 	atomic.StoreInt64(&progress.currentSpeed, int64(finalSpeed))
 
 	return finalSpeed, colo
