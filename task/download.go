@@ -191,14 +191,10 @@ func getDialContext(ip *net.IPAddr) func(ctx context.Context, network, address s
 		// 如果指定了绑定接口或本地 IP
 		if BindIntf != "" {
 			// 检查是否是 IP 地址格式
-			if bindIP := net.ParseIP(BindIntf); bindIP != nil {
-				// 是 IP 地址，设置 LocalAddr
-				if bindIP.To4() != nil {
-					dialer.LocalAddr = &net.TCPAddr{IP: bindIP}
-				} else {
-					dialer.LocalAddr = &net.TCPAddr{IP: bindIP}
-				}
-			} else {
+		if bindIP := net.ParseIP(BindIntf); bindIP != nil {
+			// 是 IP 地址，设置 LocalAddr（IPv4/IPv6 均适用）
+			dialer.LocalAddr = &net.TCPAddr{IP: bindIP}
+		} else {
 				// 不是 IP 地址，认为是接口名，通过 Control 函数绑定
 				dialer.Control = getBindInterfaceControl(BindIntf)
 			}
@@ -228,101 +224,6 @@ func printDownloadDebugInfo(ip *net.IPAddr, err error, statusCode int, url, last
 			utils.Red.Printf("[调试] IP: %s, 下载测速失败，错误信息: %v, 下载测速地址: %s\n", ip.String(), err, url)
 		}
 	}
-}
-
-// return download Speed
-func downloadHandler(ip *net.IPAddr) (float64, string) {
-	var lastRedirectURL string // 用于记录最后一次重定向目标，以便在访问错误时输出
-	client := &http.Client{
-		Transport: &http.Transport{DialContext: getDialContext(ip)},
-		Timeout:   Timeout,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			lastRedirectURL = req.URL.String() // 记录每次重定向的目标，以便在访问错误时输出
-			if len(via) > 10 {                 // 限制最多重定向 10 次
-				if utils.Debug { // 调试模式下，输出更多信息
-					utils.Red.Printf("[调试] IP: %s, 下载测速地址重定向次数过多，终止测速，下载测速地址: %s\n", ip.String(), req.URL.String())
-				}
-				return http.ErrUseLastResponse
-			}
-			if req.Header.Get("Referer") == defaultURL { // 当使用默认下载测速地址时，重定向不携带 Referer
-				req.Header.Del("Referer")
-			}
-			return nil
-		},
-	}
-	defer client.CloseIdleConnections()
-	req, err := http.NewRequest("GET", URL, nil)
-	if err != nil {
-		if utils.Debug { // 调试模式下，输出更多信息
-			utils.Red.Printf("[调试] IP: %s, 下载测速请求创建失败，错误信息: %v, 下载测速地址: %s\n", ip.String(), err, URL)
-		}
-		return 0.0, ""
-	}
-
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/98.0.4758.80 Safari/537.36")
-
-	response, err := client.Do(req)
-	if err != nil {
-		if utils.Debug { // 调试模式下，输出更多信息
-			printDownloadDebugInfo(ip, err, 0, URL, lastRedirectURL, response)
-		}
-		return 0.0, ""
-	}
-	defer response.Body.Close()
-	if response.StatusCode != 200 {
-		if utils.Debug { // 调试模式下，输出更多信息
-			printDownloadDebugInfo(ip, nil, response.StatusCode, URL, lastRedirectURL, response)
-		}
-		return 0.0, ""
-	}
-
-	// 通过头部参数获取地区码
-	colo := getHeaderColo(response.Header)
-
-	timeStart := time.Now()           // 开始时间（当前）
-	timeEnd := timeStart.Add(Timeout) // 加上下载测速时间得到的结束时间
-
-	contentLength := response.ContentLength // 文件大小
-	buffer := make([]byte, bufferSize)
-
-	var (
-		contentRead     int64 = 0
-		timeSlice             = Timeout / 100
-		timeCounter           = 1
-		lastContentRead int64 = 0
-	)
-
-	var nextTime = timeStart.Add(timeSlice * time.Duration(timeCounter))
-	e := ewma.NewMovingAverage()
-
-	// 循环计算，如果文件下载完了（两者相等），则退出循环（终止测速）
-	for contentLength != contentRead {
-		currentTime := time.Now()
-		if currentTime.After(nextTime) {
-			timeCounter++
-			nextTime = timeStart.Add(timeSlice * time.Duration(timeCounter))
-			e.Add(float64(contentRead - lastContentRead))
-			lastContentRead = contentRead
-		}
-		// 如果超出下载测速时间，则退出循环（终止测速）
-		if currentTime.After(timeEnd) {
-			break
-		}
-		bufferRead, err := response.Body.Read(buffer)
-		if err != nil {
-			if err != io.EOF { // 如果文件下载过程中遇到报错（如 Timeout），且并不是因为文件下载完了，则退出循环（终止测速）
-				break
-			} else if contentLength == -1 { // 文件下载完成 且 文件大小未知，则退出循环（终止测速），例如：https://speed.cloudflare.com/__down?bytes=200000000 这样的，如果在 10 秒内就下载完成了，会导致测速结果明显偏低甚至显示为 0.00（下载速度太快时）
-				break
-			}
-			// 获取上个时间片
-			last_time_slice := timeStart.Add(timeSlice * time.Duration(timeCounter-1))
-			// 下载数据量 / (用当前时间 - 上个时间片/ 时间片)
-			e.Add(float64(contentRead-lastContentRead) / (float64(currentTime.Sub(last_time_slice)) / float64(timeSlice)))
-		}
-		contentRead += int64(bufferRead)
-	}
-	return e.Value() / (Timeout.Seconds() / 120), colo
 }
 
 // downloadHandlerWithProgress 带进度更新的下载处理
@@ -428,9 +329,9 @@ func downloadHandlerWithProgress(ip *net.IPAddr, progress *DownloadProgress) (fl
 				break
 			}
 			// 获取上个时间片
-			last_time_slice := timeStart.Add(timeSlice * time.Duration(timeCounter-1))
+			lastTimeSlice := timeStart.Add(timeSlice * time.Duration(timeCounter-1))
 			// 下载数据量 / (用当前时间 - 上个时间片/ 时间片)
-			e.Add(float64(contentRead-lastContentRead) / (float64(currentTime.Sub(last_time_slice)) / float64(timeSlice)))
+			e.Add(float64(contentRead-lastContentRead) / (float64(currentTime.Sub(lastTimeSlice)) / float64(timeSlice)))
 		}
 		contentRead += int64(bufferRead)
 

@@ -39,6 +39,8 @@ func ValidateBindIntf() {
 }
 
 func InitRandSeed() {
+	// Go 1.20+ 已自动播种全局 rand，但为兼容 Go 1.18（go.mod 要求）仍需手动播种。
+	// 在 Go 1.20+ 中此调用会被忽略（仅产生 deprecation 提示），不影响功能。
 	rand.Seed(time.Now().UnixNano())
 }
 
@@ -268,6 +270,9 @@ func loadIPRanges() []*net.IPAddr {
 			} else {
 				ranges.chooseIPv6()
 			}
+		}
+		if err := scanner.Err(); err != nil {
+			log.Fatalf("读取 IP 数据文件 [%s] 失败：%v", IPFile, err)
 		}
 	}
 	return ranges.ips

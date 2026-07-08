@@ -133,6 +133,8 @@ func init() {
 	flag.Parse()
 	handleIPFlags(useIPv6)
 
+	// 注意：此处比较的是 utils.InputMaxDelay 的默认值（尚未被下方的赋值覆盖），
+	// 用于判断用户是否未指定 -tl 参数（即仍为默认 9999ms）。
 	if task.MinSpeed > 0 && time.Duration(maxDelay)*time.Millisecond == utils.InputMaxDelay {
 		utils.Yellow.Println("[提示] 在使用 [-sl] 参数时，建议搭配 [-tl] 参数，以避免因凑不够 [-dn] 数量而一直测速...")
 	}
@@ -179,7 +181,8 @@ func main() {
 	// 首次运行检测，输出 license 内容
 	checkFirstRun()
 
-	task.InitRandSeed() // 置随机数种子
+	task.InitRandSeed()     // 置随机数种子
+	task.ValidateBindIntf() // 验证绑定接口参数是否有效
 
 	fmt.Printf("\x1b[34;1m# CloudflareST\x1b[0m %s\n", version)
 
@@ -201,9 +204,7 @@ func main() {
 				os.Exit(0)
 			}
 		}()
-		if task.ProgramTimeout > 0 {
 			fmt.Printf("程序超时时间: %d 秒\n", task.ProgramTimeout)
-		}
 	}
 
 	// 如果设置了绑定接口，输出提示

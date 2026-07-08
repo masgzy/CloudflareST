@@ -42,7 +42,7 @@ func checkPingDefault() {
 	if Routines <= 0 {
 		Routines = defaultRoutines
 	}
-	if TCPPort <= 0 || TCPPort >= 65535 {
+	if TCPPort <= 0 || TCPPort > 65535 {
 		TCPPort = defaultPort
 	}
 	if PingTimes <= 0 {
@@ -118,12 +118,8 @@ func (p *Ping) tcping(ip *net.IPAddr) (bool, time.Duration) {
 	if BindIntf != "" {
 		// 检查是否是 IP 地址格式
 		if bindIP := net.ParseIP(BindIntf); bindIP != nil {
-			// 是 IP 地址，设置 LocalAddr
-			if bindIP.To4() != nil {
-				dialer.LocalAddr = &net.TCPAddr{IP: bindIP}
-			} else {
-				dialer.LocalAddr = &net.TCPAddr{IP: bindIP}
-			}
+			// 是 IP 地址，设置 LocalAddr（IPv4/IPv6 均适用）
+			dialer.LocalAddr = &net.TCPAddr{IP: bindIP}
 		} else {
 			// 不是 IP 地址，认为是接口名，通过 Control 函数绑定
 			dialer.Control = getBindInterfaceControl(BindIntf)
