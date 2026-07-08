@@ -22,7 +22,7 @@ import (
 // GitHubProxy GitHub 代理默认前缀。
 // 远端 version.txt 与 release 资产下载都通过该代理，避开 GFW 直连 GitHub 不稳定。
 // 可通过环境变量 CFST_GITHUB_PROXY 覆盖（设 "-" 或 "off" 表示禁用代理直连）。
-const GitHubProxy = "https://v4.gh-proxy.org/"
+const GitHubProxy = "https://github.cnxiaobai.com/"
 
 // proxyDisabledSentinels 用户填这些值表示禁用代理、直连 GitHub
 var proxyDisabledSentinels = map[string]struct{}{
