@@ -1,6 +1,6 @@
 详细使用说明请看：
 
-Github：https://github.com/XIU2/CloudflareSpeedTest
+Github：https://github.com/masgzy/CloudflareST
 
 可以去这里向我 [反馈问题、提供建议、询问使用方法] ！
 
@@ -18,7 +18,7 @@ Github：https://github.com/XIU2/CloudflareSpeedTest
 
 ===================================
 
-# 脚本【cfst_host.sh】的作用是 CFST 测速后获取最快 IP 并替换 Hosts 中的 Cloudflare CDN IP。
+# 脚本【cfst_hosts_mac.sh】的作用是 CFST 测速后获取最快 IP 并替换 Hosts 中的 Cloudflare CDN IP。
 # 使用前请先阅读：https://github.com/XIU2/CloudflareSpeedTest/discussions/312#discussioncomment-5161577
 
 ===================================
@@ -26,21 +26,24 @@ Github：https://github.com/XIU2/CloudflareSpeedTest
 ip.txt 为 IPv4 数据文件
 ipv6.txt 为 IPv6 数据文件
 
+Release 中附带的 cf.txt / cf6.txt 由构建时自动从 Cloudflare 官方拉取最新 IP 段。
+
 可以使用 -f xx.txt 参数来指定不同的 IP 数据文件（支持 IPv4 + IPv6 混合测速），如：
 ./cfst -f ipv6.txt
 ./cfst -ipv6
 
-也可以使用 -cfips 调用已保存的 Cloudflare 中国 IP 段：
-./cfst -cfips
-./cfst -ipv6 -cfips
-
-如果本地没有保存过 cfips，会自动获取并保存到 ./cfips/v4.txt 和 ./cfips/v6.txt 。
-
-也可以手动更新 Cloudflare 中国 IP 段：
-./cfst -cfips update
-
-清除已保存的 cfips ：
-./cfst -cfips clear
-
 也可以直接通过参数指定要测速的 IP，如：
 ./cfst -ip 1.1.1.1,2606:4700::/32
+
+支持指定端口（格式：IP:端口），如：
+./cfst -ip 1.1.1.1:443,2.2.2.0/24:8443
+
+===================================
+
+检查并自动更新到最新版本：
+./cfst -v
+按提示输入 Y 即可更新，更新完成后会自动重启程序。
+
+===================================
+
+本项目基于 XIU2/CloudflareSpeedTest 二次开发，使用 GPL-3.0 协议开源。

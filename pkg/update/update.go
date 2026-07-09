@@ -347,18 +347,18 @@ func scheduleWindowsReplace(current, new string) error {
 
 	batPath := filepath.Join(filepath.Dir(current), "cfst_update.bat")
 	// 注意：批处理中 % 需转义为 %%，路径用引号包裹
+	// 批处理脚本仅使用 ASCII 字符，避免 cmd.exe 默认 GBK 编码导致中文乱码
 	script := fmt.Sprintf(`@echo off
 setlocal
-chcp 65001 >nul
 set "TARGET=%s"
 set "STAGED=%s"
-echo 正在更新 CloudflareST，请稍候...
+echo Updating CloudflareST, please wait...
 :wait
 ping -n 2 127.0.0.1 >nul
 del /f /q "%%TARGET%%" 2>nul
 move /y "%%STAGED%%" "%%TARGET%%" >nul
 if errorlevel 1 goto wait
-echo 更新完成，正在重新启动...
+echo Update complete, restarting...
 start "" "%%TARGET%%"
 del /f /q "%%~f0"
 endlocal

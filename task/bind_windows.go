@@ -7,7 +7,7 @@ import (
 )
 
 // bindInterface Windows 平台绑定接口
-func bindInterface(fd uintptr, ifaceName string, ifIndex int, network string) error {
+func bindInterface(fd uintptr, _ string, ifIndex int, network string) error {
 	handle := syscall.Handle(fd)
 	ifIndex32 := uint32(ifIndex)
 	switch network {
