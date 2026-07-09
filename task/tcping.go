@@ -13,7 +13,6 @@ import (
 
 const (
 	tcpConnectTimeout = time.Second * 1
-	maxRoutine        = 1000
 	defaultRoutines   = 200
 	defaultPort       = 443
 	defaultPingTimes  = 4
