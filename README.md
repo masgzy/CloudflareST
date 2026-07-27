@@ -23,6 +23,8 @@
 
 功能与设计参考：在开发过程中，参考并借鉴了 [GuangYu-yu/CloudflareST-Rust](https://github.com/GuangYu-yu/CloudflareST-Rust)  项目的部分功能设计与实现思路。特别感谢其维护者 [GuangYu-yu](https://github.com/GuangYu-yu)  的贡献。
 
+性能对标参考：[aspnmy/CloudflareSpeedTest](https://github.com/aspnmy/CloudflareSpeedTest)  项目在调研过程中作为异步并发架构的性能对标参考，佐证了异步并发架构的性能优势这一结论（参考 [XIU2 Discussions #650](https://github.com/XIU2/CloudflareSpeedTest/discussions/650)）。该项目无直接代码贡献。
+
 **修改与新增**
 
 **为保证运行时终端的简洁和保留原作者署名，声明信息仅在首次运行时输出**(判断靠.first_run文件，此文件也会放在发行版的压缩包里面)
