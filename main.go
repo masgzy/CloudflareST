@@ -80,11 +80,17 @@ func init() {
         禁用下载测速；禁用后测速结果会按延迟排序 (默认按下载速度排序)；(默认 启用)
     -allip
         测速全部的IP；对 IP 段中的每个 IP (仅支持 IPv4) 进行测速；(默认 每个 /24 段随机测速一个 IP)
+    -sp
+        显示端口号；在结果中显示测速端口（IP:PORT），默认仅当用户指定端口时显示；(默认 关闭)
+    -zs
+        综合排序模式；下载测速结果按速度+延迟+丢包率的综合评分排序（而非纯速度排序）；(默认 关闭)
 
     -intf eth0
         绑定网络接口；绑定到指定的网络接口名或本地 IP 进行测速，如 eth0、pppoe-ct 或 192.168.1.100；(默认 空)
     -timeout 3600
         程序超时退出；程序运行超时时间（秒），超时后立即结算结果并退出；(默认 0 不限制)
+    -pi 0
+        每次 ping 间隔；单个 IP 每次延迟测速之间的间隔时间（毫秒），0 表示不间隔；若测速后 IP 不可用可尝试设置 100-200；(默认 0)
 
     -debug
         调试输出模式；会在一些非预期情况下输出更多日志以便判断原因；(默认 关闭)
@@ -97,6 +103,7 @@ func init() {
 	var minDelay, maxDelay, downloadTime int
 	var maxLossRate float64
 	var programTimeout int
+	var pingInterval int
 	flag.IntVar(&task.Routines, "n", 200, "延迟测速线程")
 	flag.IntVar(&task.PingTimes, "t", 4, "延迟测速次数")
 	flag.IntVar(&task.TargetNum, "tn", 0, "延迟测速可用数量")
@@ -122,9 +129,12 @@ func init() {
 
 	flag.BoolVar(&task.Disable, "dd", false, "禁用下载测速")
 	flag.BoolVar(&task.TestAll, "allip", false, "测速全部 IP")
+	flag.BoolVar(&utils.ShowPort, "sp", false, "显示端口号")
+	flag.BoolVar(&utils.UseZScore, "zs", false, "综合排序模式")
 
 	flag.StringVar(&task.BindIntf, "intf", "", "绑定网络接口")
 	flag.IntVar(&programTimeout, "timeout", 0, "程序超时退出")
+	flag.IntVar(&pingInterval, "pi", 0, "每次 ping 间隔")
 
 	flag.BoolVar(&utils.Debug, "debug", false, "调试输出模式")
 
@@ -142,6 +152,7 @@ func init() {
 	utils.InputMinDelay = time.Duration(minDelay) * time.Millisecond
 	utils.InputMaxLossRate = float32(maxLossRate)
 	task.Timeout = time.Duration(downloadTime) * time.Second
+	task.PingInterval = time.Duration(pingInterval) * time.Millisecond
 	task.HttpingCFColomap = task.MapColoMap()
 	task.ProgramTimeout = programTimeout
 

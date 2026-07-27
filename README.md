@@ -240,10 +240,16 @@ https://github.com/masgzy/CloudflareST
         禁用下载测速；禁用后测速结果会按延迟排序 (默认按下载速度排序)；(默认 启用)
     -allip
         测速全部的IP；对 IP 段中的每个 IP (仅支持 IPv4) 进行测速；(默认 每个 /24 段随机测速一个 IP)
+    -sp
+        显示端口号；在结果中显示测速端口（IP:PORT），默认仅当用户指定端口时显示；(默认 关闭)
+    -zs
+        综合排序模式；下载测速结果按速度+延迟+丢包率的综合评分排序（而非纯速度排序）；(默认 关闭)
     -intf eth0
         绑定网络接口；绑定到指定的网络接口名或本地 IP 进行测速，如 eth0、pppoe-ct 或 192.168.1.100；(默认 空)
     -timeout 3600
-        程序超时退出；程序运行超时时间（秒），超时后立即结算结果并 退出；(默认 0 不限制)
+        程序超时退出；程序运行超时时间（秒），超时后立即结算结果并退出；(默认 0 不限制)
+    -pi 0
+        每次 ping 间隔；单个 IP 每次延迟测速之间的间隔时间（毫秒），0 表示不间隔；若测速后 IP 不可用可尝试设置 100-200；(默认 0)
     -debug
         调试输出模式；会在一些非预期情况下输出更多日志以便判断原因；(默认 关闭)
         目前该功能仅针对 HTTPing 延迟测速过程 及 下载测速过程，当过程中因为各种原因导致当前 IP 测速中断都会输出错误原因
@@ -877,6 +883,102 @@ cfst -f 1.txt
 
 ****
 
+## 系统调优建议
+
+在大量 IP 并发测速时，操作系统可能会因 `TIME_WAIT` 套接字堆积或端口耗尽而影响测速准确性。本项目已内置 `SO_LINGER(0)` 机制（close 时发送 RST 而非 FIN，跳过 TIME_WAIT），但以下系统级调优可进一步提升高并发场景下的稳定性：
+
+<details>
+<summary><code><strong>「 点击展开 Windows 系统调优 」</strong></code></summary>
+
+****
+
+Windows 默认的 `TIME_WAIT` 时长为 **120 秒**（比 Linux 的 60 秒更长），且默认端口范围较小，高并发测速时容易出现端口耗尽。
+
+**以管理员身份运行 PowerShell，执行以下命令：**
+
+```powershell
+# 缩短 TIME_WAIT 时长为 30 秒（默认 120 秒）
+Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters" -Name "TcpTimedWaitDelay" -Value 30
+
+# 增大可用端口范围（默认 49152~65535，扩大到 10000~65535）
+Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters" -Name "MaxUserPort" -Value 65534
+
+# 启用严格 TIME_WAIT 序列号检查（安全加固）
+Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters" -Name "StrictTimeWaitSeqCheck" -Value 1
+```
+
+修改后需要 **重启计算机** 生效。
+
+> **注意**：本项目已内置 `SO_LINGER(0)` 处理 TIME_WAIT，上述注册表调整为额外保险措施。如果测速后 IP 数量正常，则无需调整。
+
+</details>
+
+<details>
+<summary><code><strong>「 点击展开 Linux 系统调优 」</strong></code></summary>
+
+****
+
+Linux 默认的 `TIME_WAIT` 时长为 **60 秒**，可通过以下命令临时调整：
+
+```bash
+# 启用 TIME_WAIT 端口复用（推荐）
+sysctl -w net.ipv4.tcp_tw_reuse=1
+
+# 增大文件描述符上限（高并发需要）
+ulimit -n 65535
+
+# 查看当前 TIME_WAIT 数量
+ss -s | grep TIME-WAIT
+```
+
+如需永久生效，将配置写入 `/etc/sysctl.conf`：
+
+```ini
+net.ipv4.tcp_tw_reuse = 1
+```
+
+然后执行 `sysctl -p` 使配置生效。
+
+> **注意**：不要设置 `tcp_tw_recycle=1`（已在 Linux 4.12+ 中移除，且在 NAT 环境下会导致丢包）。
+
+</details>
+
+<details>
+<summary><code><strong>「 点击展开 macOS 系统调优 」</strong></code></summary>
+
+****
+
+macOS 默认文件描述符上限较低，高并发测速时可能成为瓶颈。
+
+```bash
+# 查看当前文件描述符上限
+ulimit -n
+
+# 临时提升文件描述符上限
+ulimit -n 65535
+```
+
+如需永久生效，在 `~/.zshrc`（或 `~/.bash_profile`）中添加：
+
+```bash
+ulimit -n 65535
+```
+
+> **注意**：macOS 的 `TIME_WAIT` 行为由内核管理，通常不需要额外调整。本项目已内置 `SO_LINGER(0)` 机制处理 TIME_WAIT。
+
+</details>
+
+### 测速注意事项
+
+- **`-pi` 参数**：如果测速完成后发现部分 IP 的 443 端口不可用（超时/连接被拒），可能是测速频率过高触发了服务端防护。此时可使用 `-pi 200`（每次 ping 间隔 200ms）增加间隔，但这会显著增加测速耗时。
+
+- **Cloudflare 防护**：测速完成后请尽快使用结果 IP，若访问时 443 端口超时，可能是触发了 Cloudflare 的防护机制。建议：
+  - 降低并发数（如 `-n 200`）
+  - 增加 ping 间隔（如 `-pi 200`）
+  - 等待 5-10 分钟后重试
+
+****
+
 ## 问题反馈
 
 如果你遇到什么问题，可以先去 [**Issues**](https://github.com/XIU2/CloudflareSpeedTest/issues)、[Discussions](https://github.com/XIU2/CloudflareSpeedTest/discussions) 里看看是否有别人问过了（记得去看下  [**Closed**](https://github.com/XIU2/CloudflareSpeedTest/issues?q=is%3Aissue+is%3Aclosed) 的）。  
@@ -915,7 +1017,7 @@ cfst -f 1.txt
 为了方便，我是在编译的时候将版本号写入代码中的 version 变量，因此你手动编译时，需要像下面这样在 `go build` 命令后面加上 `-ldflags` 参数来指定版本号：
 
 ```bash
-go build -ldflags "-s -w -X main.version=v1.0.0"
+go build -trimpath -ldflags "-s -w -X main.version=v1.0.0"
 # 在 CloudflareSpeedTest 目录中通过命令行（例如 CMD、Bat 脚本）运行该命令，即可编译一个可在和当前设备同样系统、位数、架构的环境下运行的二进制程序（Go 会自动检测你的系统位数、架构）且版本号为 v1.0.0
 ```
 
@@ -926,7 +1028,7 @@ go build -ldflags "-s -w -X main.version=v1.0.0"
 ```bat
 SET GOOS=linux
 SET GOARCH=amd64
-go build -ldflags "-s -w -X main.version=v1.0.0"
+go build -trimpath -ldflags "-s -w -X main.version=v1.0.0"
 ```
 
 例如在 Linux 系统下编译一个适用于 **Windows 系统 amd 架构 32 位**的二进制程序：
@@ -934,7 +1036,7 @@ go build -ldflags "-s -w -X main.version=v1.0.0"
 ```bash
 GOOS=windows
 GOARCH=386
-go build -ldflags "-s -w -X main.version=v1.0.0"
+go build -trimpath -ldflags "-s -w -X main.version=v1.0.0"
 ```
 
 > 可以运行 `go tool dist list` 来查看当前 Go 版本支持编译哪些组合。

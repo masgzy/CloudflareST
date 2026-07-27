@@ -1,7 +1,7 @@
 package task
 
 import (
-	//"crypto/tls"
+	"crypto/tls"
 
 	"io"
 	"log"
@@ -31,8 +31,14 @@ func (p *Ping) httping(ip *net.IPAddr) (int, time.Duration, string) {
 	hc := http.Client{
 		Timeout: time.Second * 2,
 		Transport: &http.Transport{
-			DialContext: getDialContext(ip),
-			//TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // 跳过证书验证
+			DialContext:       getDialContext(ip),
+			DisableKeepAlives: true,  // 每次请求重新建立连接（含 TLS 握手），确保测速准确
+			ForceAttemptHTTP2: false, // 测速场景禁用 HTTP/2 多路复用
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify:     false,     // 显式不跳过证书验证
+				MinVersion:             tls.VersionTLS12, // 强制 TLS 1.2+
+				SessionTicketsDisabled: true,      // 禁用 session ticket，每次完整握手
+			},
 		},
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse // 阻止重定向
@@ -112,9 +118,7 @@ func (p *Ping) httping(ip *net.IPAddr) (int, time.Duration, string) {
 			return 0, 0, ""
 		}
 		request.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/98.0.4758.80 Safari/537.36")
-		if i == PingTimes-1 {
-			request.Header.Set("Connection", "close")
-		}
+		// DisableKeepAlives 已自动添加 Connection: close，无需手动设置
 		startTime := time.Now()
 		response, err := hc.Do(request)
 		if err != nil {
@@ -125,6 +129,10 @@ func (p *Ping) httping(ip *net.IPAddr) (int, time.Duration, string) {
 		_ = response.Body.Close()
 		duration := time.Since(startTime)
 		delay += duration
+		// 借鉴 GY-rust：只有成功才 sleep，失败不 sleep
+		if PingInterval > 0 && i < PingTimes-1 {
+			time.Sleep(PingInterval)
+		}
 	}
 
 	return success, delay, colo

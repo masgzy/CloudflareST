@@ -4,8 +4,10 @@ import (
 	"encoding/csv"
 	"fmt"
 	"log"
+	"math"
 	"net"
 	"os"
+	"sort"
 	"strconv"
 	"time"
 )
@@ -24,6 +26,8 @@ var (
 	Output           = defaultOutput
 	PrintNum         = 10
 	Debug            = false // 是否开启调试模式
+	ShowPort         = false // 是否在结果中显示端口号（-sp 控制）
+	UseZScore        = false // 是否启用综合排序（-zscore 控制）
 )
 
 // 是否打印测试结果
@@ -44,15 +48,16 @@ type PingData struct {
 	Colo     string
 	// Port 单个 IP 的自定义测速端口，0 表示使用全局默认（utils.TCPPort）
 	Port int
+	// PortFromUser 标记该 IP 的端口是否由用户在 -ip/-f 中显式指定
+	PortFromUser bool
 }
 
-// 拼接 IP 与端口：没有端口时只返回 IP
+// 拼接 IP 与端口：显式 -sp 或用户在 -ip/-f 中指定了端口时显示
 func (cf *PingData) formatIPWithPort() string {
-	base := cf.IP.String()
-	if cf.Port > 0 {
-		return base + ":" + strconv.Itoa(cf.Port)
+	if cf.Port > 0 && (ShowPort || cf.PortFromUser) {
+		return net.JoinHostPort(cf.IP.String(), strconv.Itoa(cf.Port))
 	}
-	return base
+	return cf.IP.String()
 }
 
 type CloudflareIPData struct {
@@ -175,6 +180,55 @@ func (s DownloadSpeedSet) Less(i, j int) bool {
 }
 func (s DownloadSpeedSet) Swap(i, j int) {
 	s[i], s[j] = s[j], s[i]
+}
+
+// Sort 根据是否启用 -zscore 选择排序方式
+func (s DownloadSpeedSet) Sort() {
+	if !UseZScore || len(s) < 2 {
+		sort.Sort(s) // 默认纯速度排序
+		return
+	}
+	// z-score 归一化排序（参照 GY-rust common.rs）
+	n := float64(len(s))
+	var sumDelay, sumSpeed, sumLoss float64
+	for _, v := range s {
+		sumDelay += float64(v.Delay.Milliseconds())
+		sumSpeed += v.DownloadSpeed
+		sumLoss += float64(v.getLossRate())
+	}
+	meanDelay := sumDelay / n
+	meanSpeed := sumSpeed / n
+	meanLoss := sumLoss / n
+
+	var varDelay, varSpeed, varLoss float64
+	for _, v := range s {
+		varDelay += math.Pow(float64(v.Delay.Milliseconds())-meanDelay, 2)
+		varSpeed += math.Pow(v.DownloadSpeed-meanSpeed, 2)
+		varLoss += math.Pow(float64(v.getLossRate())-meanLoss, 2)
+	}
+	stdDelay := math.Sqrt(varDelay / n)
+	stdSpeed := math.Sqrt(varSpeed / n)
+	stdLoss := math.Sqrt(varLoss / n)
+
+	// 权重：速度、延迟、丢包率均等权重（与 GY-rust 一致）
+	const wDelay, wSpeed, wLoss = 1.0, 1.0, 1.0
+	score := func(v CloudflareIPData) float64 {
+		zDelay := safeDiv(float64(v.Delay.Milliseconds())-meanDelay, stdDelay)
+		zSpeed := safeDiv(v.DownloadSpeed-meanSpeed, stdSpeed)
+		zLoss := safeDiv(float64(v.getLossRate())-meanLoss, stdLoss)
+		return wSpeed*zSpeed - wDelay*zDelay - wLoss*zLoss
+	}
+	sort.Slice(s, func(i, j int) bool {
+		return score(s[i]) > score(s[j])
+	})
+}
+
+// safeDiv 安全除法，避免除以 0
+func safeDiv(a, b float64) float64 {
+	if math.Abs(b) < 1e-9 {
+		return 0
+	}
+	return a / b
 }
 
 func (s DownloadSpeedSet) Print() {

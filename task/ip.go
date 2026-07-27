@@ -58,6 +58,8 @@ func randIPEndWith(num byte) byte {
 var (
 	// IPPortMap 全局 IP 到自定义端口映射（0 表示使用全局 TCPPort 默认值）
 	IPPortMap = make(map[string]int)
+	// IPPortFromUser 标记哪些 IP 的端口是由用户在 -ip/-f 中显式指定的
+	IPPortFromUser = make(map[string]bool)
 )
 
 func GetPortForIP(ip net.IP) int {
@@ -164,6 +166,7 @@ func (r *IPRanges) appendIP(ip net.IP) {
 	r.ips = append(r.ips, &net.IPAddr{IP: ip})
 	if r.currentPort > 0 {
 		IPPortMap[ip.String()] = r.currentPort
+		IPPortFromUser[ip.String()] = true // 标记用户显式指定了端口
 	}
 }
 
