@@ -23,6 +23,9 @@
 - [GuangYu-yu/CloudflareST-Rust](https://github.com/GuangYu-yu/CloudflareST-Rust) — 功能与设计参考
 - [aspnmy/CloudflareSpeedTest](https://github.com/aspnmy/CloudflareSpeedTest) — 性能对标参考（[#650](https://github.com/XIU2/CloudflareSpeedTest/discussions/650)），无直接代码贡献
 
+> [!NOTE]
+> 本项目 `go.mod` 的 module 名仍为 `github.com/XIU2/CloudflareSpeedTest`（fork 时保留），因此 `go install github.com/XIU2/CloudflareSpeedTest@latest` 会拉取上游原版而非本仓库。请通过 [Releases](https://github.com/masgzy/CloudflareST/releases) 下载预编译二进制，或 clone 本仓库后本地 `go build`。
+
 **修改与新增**
 
 **为保证运行时终端的简洁和保留原作者署名，声明信息仅在首次运行时输出**(判断靠.first_run文件，此文件也会放在发行版的压缩包里面)
