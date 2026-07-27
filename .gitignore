@@ -4,8 +4,7 @@ Releases
 *.csv
 *.bak
 .claude
-conversation*.txt
-1.md
 Release.md
 last_Release.md
 CLAUDE.md
+CloudflareST*.md
