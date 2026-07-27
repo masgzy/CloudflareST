@@ -128,7 +128,7 @@ jobs:
       - name: 编译二进制文件
         shell: bash
         run: |
-          go build -ldflags="-s -w -X main.version=${{ env.VERSION }}" -o cfst${{ matrix.goos == 'windows' && '.exe' || '' }}
+          go build -trimpath -ldflags="-s -w -X main.version=${{ env.VERSION }}" -o cfst${{ matrix.goos == 'windows' && '.exe' || '' }}
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
@@ -251,7 +251,7 @@ jobs:
       - name: 编译二进制文件
         shell: bash
         run: |
-          go build -ldflags="-s -w -X main.version=${{ env.VERSION }}" -o cfst${{ matrix.goos == 'windows' && '.exe' || '' }}
+          go build -trimpath -ldflags="-s -w -X main.version=${{ env.VERSION }}" -o cfst${{ matrix.goos == 'windows' && '.exe' || '' }}
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}

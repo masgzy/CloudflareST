@@ -19,9 +19,23 @@ const (
 	waveWidth            = 16.0 // 波动宽度
 	speedFactor          = 0.3  // 速度因子
 	saturationBase       = 0.6  // 基础饱和度
-	refreshIntervalMs    = 40   // 刷新间隔（毫秒）
+	refreshIntervalMs    = 40   // TTY 模式刷新间隔（毫秒）
+	nonTTYRefreshMs      = 1000 // 非 TTY 模式刷新间隔（毫秒），避免管道输出刷屏
 	terminalDefaultWidth = 80   // 默认终端宽度
 )
+
+// isTerminalCache 缓存 stdout 是否为 TTY 的检测结果
+var isTerminalCache *bool
+
+// IsTerminal 检测 stdout 是否为终端（TTY）
+func IsTerminal() bool {
+	if isTerminalCache != nil {
+		return *isTerminalCache
+	}
+	result := term.IsTerminal(int(os.Stdout.Fd()))
+	isTerminalCache = &result
+	return result
+}
 
 // supportsColorCache 缓存终端彩色支持检测结果
 var supportsColorCache *bool
@@ -84,6 +98,7 @@ type Bar struct {
 	inner     *BarInner
 	stopChan  chan struct{}
 	startTime time.Time
+	isTTY     bool // 是否为终端输出
 }
 
 // NewBar 创建新的进度条
@@ -104,6 +119,7 @@ func NewBar(count int, startStr, endStr string) *Bar {
 		inner:     inner,
 		stopChan:  make(chan struct{}),
 		startTime: time.Now(),
+		isTTY:     IsTerminal(),
 	}
 
 	// 启动渲染协程
@@ -114,7 +130,12 @@ func NewBar(count int, startStr, endStr string) *Bar {
 
 // runRenderLoop 渲染循环
 func (b *Bar) runRenderLoop() {
-	ticker := time.NewTicker(refreshIntervalMs * time.Millisecond)
+	// 非 TTY 模式降频到每秒一次，避免管道/重定向场景刷屏
+	interval := refreshIntervalMs
+	if !b.isTTY {
+		interval = nonTTYRefreshMs
+	}
+	ticker := time.NewTicker(time.Duration(interval) * time.Millisecond)
 	defer ticker.Stop()
 
 	for {
@@ -180,26 +201,33 @@ func (b *Bar) renderOnce() {
 	if currentPos > total {
 		progress = 1.0
 	}
-	filled := int(progress * float64(barLength))
-	phase := math.Mod(elapsed.Seconds()*progressBarSpeed, 1.0)
-
-	// 构建进度条字符串
-	barStr := b.buildProgressBar(barLength, filled, progress, phase, elapsed)
 
 	// 构建输出（根据终端是否支持彩色选择不同格式）
 	var output string
-	if SupportsColor() {
-		output = fmt.Sprintf("\r\x1b[K\x1b[33m%s\x1b[0m %s %s \x1b[32m%s\x1b[0m %s",
-			textSnapshot.msg, barStr, b.inner.startStr, textSnapshot.prefix, b.inner.endStr)
-	} else {
-		// 纯文本回退：用 #- 字符组成进度条
+	if !b.isTTY {
+		// 非 TTY 模式：纯文本 + 换行，便于管道/重定向场景阅读
 		percent := progress * 100
-		plainBar := fmt.Sprintf("[%s%s] %3.0f%%",
-			strings.Repeat("#", filled),
-			strings.Repeat("-", barLength-filled),
-			percent)
-		output = fmt.Sprintf("\r\033[K%s %s %s %s",
-			textSnapshot.msg, plainBar, textSnapshot.prefix, b.inner.endStr)
+		output = fmt.Sprintf("%s [%.0f%%] %s\n",
+			textSnapshot.msg, percent, textSnapshot.prefix)
+	} else {
+		// TTY 模式：构建彩色进度条
+		filled := int(progress * float64(barLength))
+		phase := math.Mod(elapsed.Seconds()*progressBarSpeed, 1.0)
+		barStr := b.buildProgressBar(barLength, filled, progress, phase, elapsed)
+
+		if SupportsColor() {
+			output = fmt.Sprintf("\r\x1b[K\x1b[33m%s\x1b[0m %s %s \x1b[32m%s\x1b[0m %s",
+				textSnapshot.msg, barStr, b.inner.startStr, textSnapshot.prefix, b.inner.endStr)
+		} else {
+			// 纯文本回退：用 #- 字符组成进度条
+			percent := progress * 100
+			plainBar := fmt.Sprintf("[%s%s] %3.0f%%",
+				strings.Repeat("#", filled),
+				strings.Repeat("-", barLength-filled),
+				percent)
+			output = fmt.Sprintf("\r\x1b[K%s %s %s",
+				textSnapshot.msg, plainBar, textSnapshot.prefix)
+		}
 	}
 
 	// 输出到终端

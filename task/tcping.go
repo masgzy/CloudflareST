@@ -1,6 +1,7 @@
 package task
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"sort"
@@ -19,18 +20,42 @@ const (
 )
 
 var (
-	Routines  = defaultRoutines
-	TCPPort   int = defaultPort
-	PingTimes int = defaultPingTimes
-	TargetNum int = 0 // 延迟测速可用数量目标，0表示不限制
+	Routines     = defaultRoutines
+	TCPPort      int = defaultPort
+	PingTimes    int = defaultPingTimes
+	TargetNum    int = 0 // 延迟测速可用数量目标，0表示不限制
+	PingInterval     = time.Duration(0) // 每次 ping 之间的间隔，默认 0 不间隔
 )
+
+// weightedSemaphore 是一个轻量级加权信号量实现，避免引入 golang.org/x/sync 依赖
+// 保持与 Go 1.20 的兼容性（old 版本构建）
+type weightedSemaphore struct {
+	ch chan struct{}
+}
+
+func newWeightedSemaphore(n int64) *weightedSemaphore {
+	return &weightedSemaphore{ch: make(chan struct{}, n)}
+}
+
+func (s *weightedSemaphore) Acquire(ctx context.Context, n int64) error {
+	select {
+	case s.ch <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (s *weightedSemaphore) Release(n int64) {
+	<-s.ch
+}
 
 type Ping struct {
 	wg          *sync.WaitGroup
 	m           *sync.Mutex
 	ips         []*net.IPAddr
 	csv         utils.PingDelaySet
-	control     chan bool
+	sem         *weightedSemaphore
 	bar         *utils.Bar
 	earlyStop   int32 // 原子标志：是否提前停止
 	totalCount  int32 // 原子计数器：已处理的IP总数
@@ -57,7 +82,7 @@ func NewPing() *Ping {
 		m:           &sync.Mutex{},
 		ips:         ips,
 		csv:         make(utils.PingDelaySet, 0),
-		control:     make(chan bool, Routines),
+		sem:         newWeightedSemaphore(int64(Routines)),
 		bar:         utils.NewPingBar(len(ips)),
 		earlyStop:   0,
 		totalCount:  0,
@@ -80,7 +105,7 @@ func (p *Ping) Run() utils.PingDelaySet {
 			break
 		}
 		p.wg.Add(1)
-		p.control <- false
+		p.sem.Acquire(context.Background(), 1)
 		go p.start(ip)
 	}
 	p.wg.Wait()
@@ -91,7 +116,7 @@ func (p *Ping) Run() utils.PingDelaySet {
 
 func (p *Ping) start(ip *net.IPAddr) {
 	defer p.wg.Done()
-	defer func() { <-p.control }()
+	defer p.sem.Release(1)
 
 	// 检查是否需要提前停止（局部或全局）
 	if atomic.LoadInt32(&p.earlyStop) == 1 || atomic.LoadInt32(&GlobalEarlyStop) == 1 {
@@ -124,12 +149,14 @@ func (p *Ping) tcping(ip *net.IPAddr) (bool, time.Duration) {
 			dialer.Control = getBindInterfaceControl(BindIntf)
 		}
 	}
+	// 合并 SO_LINGER(0) 与已有的 Control（接口绑定），跳过 TIME_WAIT
+	dialer.Control = chainControl(setLingerControl(), dialer.Control)
 
 	conn, err := dialer.Dial("tcp", fullAddress)
 	if err != nil {
 		return false, 0
 	}
-	defer conn.Close()
+	_ = conn.Close() // SO_LINGER(0) 使 close() 发 RST，无 TIME_WAIT
 	duration := time.Since(startTime)
 	return true, duration
 }
@@ -149,6 +176,10 @@ func (p *Ping) checkConnection(ip *net.IPAddr) (recv int, totalDelay time.Durati
 		if ok, delay := p.tcping(ip); ok {
 			recv++
 			totalDelay += delay
+			// 借鉴 GY-rust：只有成功才 sleep，失败不 sleep
+			if PingInterval > 0 && i < PingTimes-1 {
+				time.Sleep(PingInterval)
+			}
 		}
 	}
 	return
@@ -205,12 +236,13 @@ func (p *Ping) tcpingHandler(ip *net.IPAddr) {
 		// 只有平均延迟在上限内才尝试添加
 		if avgDelay <= utils.InputMaxDelay {
 			data := &utils.PingData{
-				IP:       ip,
-				Sended:   PingTimes,
-				Received: recv,
-				Delay:    avgDelay,
-				Colo:     colo,
-				Port:     GetPortForIP(ip.IP),
+				IP:            ip,
+				Sended:        PingTimes,
+				Received:      recv,
+				Delay:         avgDelay,
+				Colo:          colo,
+				Port:          GetPortForIP(ip.IP),
+				PortFromUser:  IPPortFromUser[ip.String()],
 			}
 			// 尝试添加数据
 			p.tryAppendIPData(data)

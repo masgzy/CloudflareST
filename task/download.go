@@ -6,7 +6,7 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"sort"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	bufferSize                     = 32 * 1024 // 32KB，减少高速下载时的 IO 调用次数
+	bufferSize = 256 * 1024 // 256KB，减少高速下载时的 IO 调用次数
 	defaultURL                     = "https://download.parallels.com/desktop/v15/15.1.5-47309/ParallelsDesktop-15.1.5-47309.dmg"
 	defaultTimeout                 = 10 * time.Second
 	defaultDisableDownload         = false
@@ -147,7 +147,7 @@ func TestDownloadSpeed(ipSet utils.PingDelaySet) (speedSet utils.DownloadSpeedSe
 	if atomic.LoadInt32(&GlobalEarlyStop) == 1 {
 		bar.Done()
 		// 按速度排序
-		sort.Sort(speedSet)
+		speedSet.Sort()
 		return
 	}
 
@@ -174,7 +174,7 @@ func TestDownloadSpeed(ipSet utils.PingDelaySet) (speedSet utils.DownloadSpeedSe
 		speedSet = utils.DownloadSpeedSet(ipSet)
 	}
 	// 按速度排序
-	sort.Sort(speedSet)
+	speedSet.Sort()
 	return
 }
 
@@ -191,16 +191,34 @@ func getDialContext(ip *net.IPAddr) func(ctx context.Context, network, address s
 		// 如果指定了绑定接口或本地 IP
 		if BindIntf != "" {
 			// 检查是否是 IP 地址格式
-		if bindIP := net.ParseIP(BindIntf); bindIP != nil {
-			// 是 IP 地址，设置 LocalAddr（IPv4/IPv6 均适用）
-			dialer.LocalAddr = &net.TCPAddr{IP: bindIP}
-		} else {
+			if bindIP := net.ParseIP(BindIntf); bindIP != nil {
+				// 是 IP 地址，设置 LocalAddr（IPv4/IPv6 均适用）
+				dialer.LocalAddr = &net.TCPAddr{IP: bindIP}
+			} else {
 				// 不是 IP 地址，认为是接口名，通过 Control 函数绑定
 				dialer.Control = getBindInterfaceControl(BindIntf)
 			}
 		}
+		// 合并 SO_LINGER(0) 与已有的 Control（接口绑定），跳过 TIME_WAIT
+		dialer.Control = chainControl(setLingerControl(), dialer.Control)
 		return dialer.DialContext(ctx, network, fakeSourceAddr)
 	}
+}
+
+// bufferPool 复用下载缓冲区，减少 GC 压力
+var bufferPool = sync.Pool{
+	New: func() interface{} {
+		b := make([]byte, bufferSize)
+		return &b
+	},
+}
+
+func getBuffer() *[]byte {
+	return bufferPool.Get().(*[]byte)
+}
+
+func putBuffer(b *[]byte) {
+	bufferPool.Put(b)
 }
 
 // 统一的请求报错调试输出
@@ -230,8 +248,12 @@ func printDownloadDebugInfo(ip *net.IPAddr, err error, statusCode int, url, last
 func downloadHandlerWithProgress(ip *net.IPAddr, progress *DownloadProgress) (float64, string) {
 	var lastRedirectURL string // 用于记录最后一次重定向目标，以便在访问错误时输出
 	client := &http.Client{
-		Transport: &http.Transport{DialContext: getDialContext(ip)},
-		Timeout:   Timeout,
+		Transport: &http.Transport{
+			DialContext:       getDialContext(ip),
+			DisableKeepAlives: true,  // 测速无需连接池，每次含完整握手
+			ForceAttemptHTTP2: false, // 测速场景禁用 HTTP/2 多路复用
+		},
+		Timeout: Timeout,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			lastRedirectURL = req.URL.String() // 记录每次重定向的目标，以便在访问错误时输出
 			if len(via) > 10 {                 // 限制最多重定向 10 次
@@ -282,7 +304,9 @@ func downloadHandlerWithProgress(ip *net.IPAddr, progress *DownloadProgress) (fl
 	timeEnd := timeStart.Add(Timeout) // 加上下载测速时间得到的结束时间
 
 	contentLength := response.ContentLength // 文件大小
-	buffer := make([]byte, bufferSize)
+	bufferPtr := getBuffer()
+	defer putBuffer(bufferPtr)
+	buffer := *bufferPtr
 
 	var contentRead int64 = 0
 
