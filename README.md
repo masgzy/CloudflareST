@@ -17,13 +17,11 @@
 
 ## \# 关于本项目
 
-**本项目是一个基于以下两个优秀开源项目的衍生版本，旨在结合二者优点并优化使用体验：**
+**本项目基于以下开源项目：**
 
-核心基础：本项目主体基于 [XIU2/CloudflareSpeedTest](https://github.com/XIU2/CloudflareSpeedTest)  (v2.3.5) 进行修改。该原项目由 [XIU2](https://github.com/XIU2)  使用 Go 语言编写，在此感谢其开创性工作。
-
-功能与设计参考：在开发过程中，参考并借鉴了 [GuangYu-yu/CloudflareST-Rust](https://github.com/GuangYu-yu/CloudflareST-Rust)  项目的部分功能设计与实现思路。特别感谢其维护者 [GuangYu-yu](https://github.com/GuangYu-yu)  的贡献。
-
-性能对标参考：[aspnmy/CloudflareSpeedTest](https://github.com/aspnmy/CloudflareSpeedTest)  项目在调研过程中作为异步并发架构的性能对标参考，佐证了异步并发架构的性能优势这一结论（参考 [XIU2 Discussions #650](https://github.com/XIU2/CloudflareSpeedTest/discussions/650)）。该项目无直接代码贡献。
+- [XIU2/CloudflareSpeedTest](https://github.com/XIU2/CloudflareSpeedTest) — 核心基础，基于其 Go 版本修改
+- [GuangYu-yu/CloudflareST-Rust](https://github.com/GuangYu-yu/CloudflareST-Rust) — 功能与设计参考
+- [aspnmy/CloudflareSpeedTest](https://github.com/aspnmy/CloudflareSpeedTest) — 性能对标参考（[#650](https://github.com/XIU2/CloudflareSpeedTest/discussions/650)），无直接代码贡献
 
 **修改与新增**
 
