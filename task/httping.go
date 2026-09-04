@@ -24,7 +24,6 @@ import (
 	"crypto/tls"
 
 	"io"
-	"log"
 	"net"
 	"net/http"
 	"regexp"
@@ -33,7 +32,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/XIU2/CloudflareSpeedTest/utils"
+	"github.com/masgzy/CloudflareST/utils"
 )
 
 var (
@@ -55,9 +54,9 @@ func (p *Ping) httping(ip *net.IPAddr) (int, time.Duration, string) {
 			DisableKeepAlives: true,  // 每次请求重新建立连接（含 TLS 握手），确保测速准确
 			ForceAttemptHTTP2: false, // 测速场景禁用 HTTP/2 多路复用
 			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify:     false,     // 显式不跳过证书验证
+				InsecureSkipVerify:     false,            // 显式不跳过证书验证
 				MinVersion:             tls.VersionTLS12, // 强制 TLS 1.2+
-				SessionTicketsDisabled: true,      // 禁用 session ticket，每次完整握手
+				SessionTicketsDisabled: true,             // 禁用 session ticket，每次完整握手
 			},
 		},
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
@@ -106,21 +105,22 @@ func (p *Ping) httping(ip *net.IPAddr) (int, time.Duration, string) {
 			}
 		}
 
-		io.Copy(io.Discard, response.Body)
+		_, _ = io.Copy(io.Discard, response.Body) //nolint:errcheck // 写入 io.Discard 永不失败（HEAD 响应无 body）
 
 		// 通过头部参数获取地区码
 		colo = getHeaderColo(response.Header)
 
 		// 只有指定了地区才匹配机场地区码
 		if HttpingCFColo != "" {
-			// 判断是否匹配指定的地区码
-			colo = p.filterColo(colo)
-			if colo == "" { // 没有匹配到地区码或不符合指定地区则直接结束该 IP 测试
+			// 判断是否匹配指定的地区码（matchedColo 单独接值，保留原始 colo 用于调试输出）
+			matchedColo := p.filterColo(colo)
+			if matchedColo == "" { // 没有匹配到地区码或不符合指定地区则直接结束该 IP 测试
 				if utils.Debug { // 调试模式下，输出更多信息
 					utils.Red.Printf("[调试] IP: %s, 地区码不匹配: %s\n", ip.String(), colo)
 				}
 				return 0, 0, ""
 			}
+			colo = matchedColo
 		}
 	}
 
@@ -134,8 +134,12 @@ func (p *Ping) httping(ip *net.IPAddr) (int, time.Duration, string) {
 		}
 		request, err := http.NewRequest(http.MethodHead, URL, nil)
 		if err != nil {
-			log.Fatal("意外的错误，请报告：", err)
-			return 0, 0, ""
+			// URL 已在首次请求时验证过，正常不会走到这里；
+			// 即便走到了也只是单个 IP 测速失败，不应 log.Fatal 拖垮整个测速进程
+			if utils.Debug {
+				utils.Red.Printf("[调试] IP: %s, 延迟测速请求创建失败，错误信息: %v, 测速地址: %s\n", ip.String(), err, URL)
+			}
+			continue
 		}
 		request.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/98.0.4758.80 Safari/537.36")
 		// DisableKeepAlives 已自动添加 Connection: close，无需手动设置
@@ -145,7 +149,7 @@ func (p *Ping) httping(ip *net.IPAddr) (int, time.Duration, string) {
 			continue
 		}
 		success++
-		io.Copy(io.Discard, response.Body)
+		_, _ = io.Copy(io.Discard, response.Body)
 		_ = response.Body.Close()
 		duration := time.Since(startTime)
 		delay += duration

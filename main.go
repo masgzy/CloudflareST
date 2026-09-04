@@ -32,9 +32,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/XIU2/CloudflareSpeedTest/pkg/update"
-	"github.com/XIU2/CloudflareSpeedTest/task"
-	"github.com/XIU2/CloudflareSpeedTest/utils"
+	"github.com/masgzy/CloudflareST/pkg/update"
+	"github.com/masgzy/CloudflareST/task"
+	"github.com/masgzy/CloudflareST/utils"
 )
 
 //go:embed statement.txt
@@ -88,7 +88,7 @@ func init() {
     -f ip.txt
         IP段数据文件；如路径含有空格请加上引号；支持其他 CDN IP段；(默认 ip.txt)
     -ipv6
-        使用自带的 ipv6.txt 数据文件；等效于 [-f ipv6.txt]
+        使用自带的 ipv6.txt 数据文件；等效于 [-f ipv6.txt]（与 -f 同时指定时优先 -f）
     -ip 1.1.1.1,2.2.2.2/24,2606:4700::/32
         指定IP段数据；直接通过参数指定要测速的 IP 段数据，英文逗号分隔；(默认 空)
         支持指定端口：单个IP → 1.1.1.1:443、IPv4网段 → 1.1.1.0/24:443、IPv6 → [::1]:443、IPv6网段 → [2606:4700::/32]:443
@@ -161,7 +161,15 @@ func init() {
 	flag.BoolVar(&printVersion, "v", false, "打印程序版本")
 	flag.Usage = func() { fmt.Print(strings.ReplaceAll(help, "\\x1b", "\x1b")) }
 	flag.Parse()
-	handleIPFlags(useIPv6)
+
+	// 检测 -f 是否被显式指定（用于 -ipv6 冲突时确定优先级）
+	ipFileSet := false
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == "f" {
+			ipFileSet = true
+		}
+	})
+	handleIPFlags(useIPv6, ipFileSet)
 
 	// 注意：此处比较的是 utils.InputMaxDelay 的默认值（尚未被下方的赋值覆盖），
 	// 用于判断用户是否未指定 -tl 参数（即仍为默认 9999ms）。
@@ -179,31 +187,42 @@ func init() {
 	if printVersion {
 		println(version)
 		fmt.Println("检查版本更新中...")
-		update.CheckUpdate(version)
-		if !update.HasUpdate() {
+		status, checkErr := update.CheckUpdate(version)
+		switch status {
+		case update.CheckUpToDate:
 			utils.Green.Println("当前为最新版本 [" + version + "]！")
-			os.Exit(0)
+		case update.CheckHasUpdate:
+			utils.Yellow.Printf("*** 发现新版本 [%s]！是否立即更新？[Y/n] ***\n", update.LatestVersion)
+			reader := bufio.NewReader(os.Stdin)
+			ans, _ := reader.ReadString('\n')
+			ans = strings.TrimSpace(strings.ToLower(ans))
+			if ans != "" && ans != "y" && ans != "yes" {
+				fmt.Println("已跳过更新。")
+				os.Exit(0)
+			}
+			if err := update.PerformUpdate(context.Background()); err != nil {
+				utils.Red.Printf("更新失败: %v\n", err)
+				fmt.Println("可前往 https://github.com/masgzy/CloudflareST/releases/latest 手动下载。")
+				os.Exit(1)
+			}
+			utils.Green.Println("更新完成！请重新启动程序。")
+		default: // update.CheckFailed
+			// 绝不能把"检查失败"说成"已是最新"，明确告知用户原因并给出手动检查途径
+			utils.Red.Printf("检查更新失败（%v）。\n", checkErr)
+			fmt.Printf("当前版本 [%s]，可稍后重试，或前往 https://github.com/masgzy/CloudflareST/releases/latest 手动检查新版本。\n", version)
 		}
-		utils.Yellow.Printf("*** 发现新版本 [%s]！是否立即更新？[Y/n] ***\n", update.LatestVersion)
-		reader := bufio.NewReader(os.Stdin)
-		ans, _ := reader.ReadString('\n')
-		ans = strings.TrimSpace(strings.ToLower(ans))
-		if ans != "" && ans != "y" && ans != "yes" {
-			fmt.Println("已跳过更新。")
-			os.Exit(0)
-		}
-		if err := update.PerformUpdate(context.Background()); err != nil {
-			utils.Red.Printf("更新失败: %v\n", err)
-			fmt.Println("可前往 https://github.com/masgzy/CloudflareST/releases/latest 手动下载。")
-			os.Exit(1)
-		}
-		utils.Green.Println("更新完成！请重新启动程序。")
 		os.Exit(0)
 	}
 }
 
-func handleIPFlags(useIPv6 bool) {
+// handleIPFlags 处理 -ipv6 与 -f 的关系：
+// -f 显式指定时优先于 -ipv6（更具体的意图优先），并在两者冲突时提示用户
+func handleIPFlags(useIPv6, ipFileSet bool) {
 	if useIPv6 {
+		if ipFileSet {
+			utils.Yellow.Println("[提示] 已同时指定 [-ipv6] 与 [-f]，优先使用 [-f] 指定的 IP 文件。")
+			return
+		}
 		task.IPFile = "ipv6.txt"
 	}
 }
@@ -219,23 +238,29 @@ func main() {
 
 	// 如果设置了程序超时时间，启动超时处理 goroutine
 	if task.ProgramTimeout > 0 {
+		fmt.Printf("程序超时时间: %d 秒\n", task.ProgramTimeout)
 		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(task.ProgramTimeout)*time.Second)
 		defer cancel()
 		go func() {
 			<-ctx.Done()
-			if ctx.Err() == context.DeadlineExceeded {
-				// 先停止进度条，防止后续更新
-				utils.StopAllProgress()
-				// 清除当前行并打印退出信息
-				fmt.Print("\r\x1b[K")
-				utils.Yellow.Println("[信息] 程序运行超时，正在结算结果并退出...")
-				atomic.StoreInt32(&task.GlobalEarlyStop, 1)
-				// 给一些时间让当前操作完成
-				time.Sleep(500 * time.Millisecond)
-				os.Exit(0)
+			if ctx.Err() != context.DeadlineExceeded {
+				return // main 正常结束时 cancel 触发，不是超时，直接退出 goroutine
 			}
+			fmt.Print("\r\x1b[K")
+			utils.Yellow.Println("[信息] 程序运行超时，正在结算结果并退出...")
+			// 置停止标志后，测速各环节（延迟测速循环/下载测速循环）都会尽快收敛，
+			// 主流程会继续走完 ExportCsv + Print，保证已测得的结果不丢失。
+			atomic.StoreInt32(&task.GlobalEarlyStop, 1)
+			// 兑底看门狗：正常情况下主流程会先自然退出；万一卡死则强制退出，避免 -timeout 失效。
+			// 时间取 下载测速超时的 2 倍 + 30 秒，且不少于 2 分钟。
+			watchdog := 2*task.Timeout + 30*time.Second
+			if watchdog < 2*time.Minute {
+				watchdog = 2 * time.Minute
+			}
+			time.Sleep(watchdog)
+			fmt.Println("[警告] 结算超时，强制退出（结果可能未完整写入）。")
+			os.Exit(0)
 		}()
-			fmt.Printf("程序超时时间: %d 秒\n", task.ProgramTimeout)
 	}
 
 	// 如果设置了绑定接口，输出提示
@@ -259,7 +284,7 @@ func endPrint() {
 	}
 	if runtime.GOOS == "windows" { // 如果是 Windows 系统，则需要按下 回车键 或 Ctrl+C 退出（避免通过双击运行时，测速完毕后直接关闭）
 		fmt.Printf("按下 回车键 或 Ctrl+C 退出。")
-		fmt.Scanln()
+		_, _ = fmt.Scanln()
 	}
 }
 

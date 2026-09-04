@@ -106,13 +106,13 @@ type TextData struct {
 
 // BarInner 进度条内部结构
 type BarInner struct {
-	text      *TextData
-	textMu    sync.RWMutex
-	done      bool // 改名为 done
-	doneMu    sync.RWMutex
-	total     int
-	startStr  string
-	endStr    string
+	text     *TextData
+	textMu   sync.RWMutex
+	done     bool // 改名为 done
+	doneMu   sync.RWMutex
+	total    int
+	startStr string
+	endStr   string
 }
 
 // Bar 进度条

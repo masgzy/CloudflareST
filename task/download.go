@@ -23,20 +23,19 @@ package task
 import (
 	"context"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/XIU2/CloudflareSpeedTest/utils"
+	"github.com/masgzy/CloudflareST/utils"
 
 	"github.com/VividCortex/ewma"
 )
 
 const (
-	bufferSize = 256 * 1024 // 256KB，减少高速下载时的 IO 调用次数
+	bufferSize                     = 256 * 1024 // 256KB，减少高速下载时的 IO 调用次数
 	defaultURL                     = "https://download.parallels.com/desktop/v15/15.1.5-47309/ParallelsDesktop-15.1.5-47309.dmg"
 	defaultTimeout                 = 10 * time.Second
 	defaultDisableDownload         = false
@@ -166,6 +165,12 @@ func TestDownloadSpeed(ipSet utils.PingDelaySet) (speedSet utils.DownloadSpeedSe
 	// 检查是否因为全局停止而退出
 	if atomic.LoadInt32(&GlobalEarlyStop) == 1 {
 		bar.Done()
+		if len(speedSet) == 0 && len(ipSet) > 0 {
+			// 全局超时等场景下下载测速被整体跳过：
+			// 直接沿用延迟测速结果（保持延迟排序，与 -dd 行为一致），避免已测得的结果被丢弃
+			speedSet = utils.DownloadSpeedSet(ipSet)
+			return
+		}
 		// 按速度排序
 		speedSet.Sort()
 		return
@@ -362,12 +367,10 @@ func downloadHandlerWithProgress(ip *net.IPAddr, progress *DownloadProgress) (fl
 		bufferRead, err := response.Body.Read(buffer)
 		contentRead += int64(bufferRead)
 		if err != nil {
-			if err != io.EOF { // 如果文件下载过程中遇到报错（如 Timeout），且并不是因为文件下载完了，则退出循环（终止测速）
-				break
-			} else if contentLength == -1 { // 文件下载完成 且 文件大小未知，则退出循环（终止测速）
-				break
-			}
-			// EOF 且文件大小已知：文件下载完成，循环条件会自动退出
+			// EOF 且已读满 contentLength：循环条件自然退出，break 等价；
+			// EOF 但未读满：服务器提前断开（短读），继续 Read 只会永远返回 EOF 空转烧 CPU 直到超时；
+			// 其他错误（如超时）：直接终止。
+			break
 		}
 	}
 

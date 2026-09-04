@@ -25,19 +25,29 @@ import (
 	"syscall"
 )
 
+// htonl 将 32 位值按网络字节序（大端）重排。
+// MSDN 要求 IP_UNICAST_IF / IPV6_UNICAST_IF 传入"网络字节序"的接口索引：
+// https://learn.microsoft.com/en-us/windows/win32/winsock/ipproto-ip-socket-options
+// Windows 实际均为小端平台（amd64/386/arm64），直接字节交换即可。
+func htonl(v uint32) uint32 {
+	return v<<24 | (v&0xff00)<<8 | (v>>8)&0xff00 | v>>24
+}
+
 // bindInterface Windows 平台绑定接口
 func bindInterface(fd uintptr, _ string, ifIndex int, network string) error {
 	handle := syscall.Handle(fd)
-	ifIndex32 := uint32(ifIndex)
+	// 接口索引必须转成网络字节序再传给 setsockopt，否则在小端机器上
+	// 索引值字节颠倒，会绑定到错误的接口或直接失败
+	ifIndexNet := int(int32(htonl(uint32(ifIndex))))
 	switch network {
 	case "tcp4", "udp4":
-		return syscall.SetsockoptInt(handle, syscall.IPPROTO_IP, IP_UNICAST_IF, int(ifIndex32))
+		return syscall.SetsockoptInt(handle, syscall.IPPROTO_IP, IP_UNICAST_IF, ifIndexNet)
 	case "tcp6", "udp6":
-		return syscall.SetsockoptInt(handle, syscall.IPPROTO_IPV6, IPV6_UNICAST_IF, int(ifIndex32))
+		return syscall.SetsockoptInt(handle, syscall.IPPROTO_IPV6, IPV6_UNICAST_IF, ifIndexNet)
 	default:
-		err := syscall.SetsockoptInt(handle, syscall.IPPROTO_IP, IP_UNICAST_IF, int(ifIndex32))
+		err := syscall.SetsockoptInt(handle, syscall.IPPROTO_IP, IP_UNICAST_IF, ifIndexNet)
 		if err != nil {
-			return syscall.SetsockoptInt(handle, syscall.IPPROTO_IPV6, IPV6_UNICAST_IF, int(ifIndex32))
+			return syscall.SetsockoptInt(handle, syscall.IPPROTO_IPV6, IPV6_UNICAST_IF, ifIndexNet)
 		}
 		return err
 	}

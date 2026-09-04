@@ -29,21 +29,22 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/XIU2/CloudflareSpeedTest/utils"
+	"github.com/masgzy/CloudflareST/utils"
 )
 
 const (
 	tcpConnectTimeout = time.Second * 1
 	defaultRoutines   = 200
+	maxRoutines       = 1000 // 延迟测速线程上限（与帮助文本一致）
 	defaultPort       = 443
 	defaultPingTimes  = 4
 )
 
 var (
-	Routines     = defaultRoutines
+	Routines         = defaultRoutines
 	TCPPort      int = defaultPort
 	PingTimes    int = defaultPingTimes
-	TargetNum    int = 0 // 延迟测速可用数量目标，0表示不限制
+	TargetNum    int = 0                // 延迟测速可用数量目标，0表示不限制
 	PingInterval     = time.Duration(0) // 每次 ping 之间的间隔，默认 0 不间隔
 )
 
@@ -67,7 +68,9 @@ func (s *weightedSemaphore) Acquire(ctx context.Context, n int64) error {
 }
 
 func (s *weightedSemaphore) Release(n int64) {
-	<-s.ch
+	for i := int64(0); i < n; i++ { // 按请求量释放，避免调用 Release(2) 却只释放 1 个配额
+		<-s.ch
+	}
 }
 
 type Ping struct {
@@ -85,6 +88,9 @@ type Ping struct {
 func checkPingDefault() {
 	if Routines <= 0 {
 		Routines = defaultRoutines
+	}
+	if Routines > maxRoutines { // 帮助文本承诺最多 1000，超出部分强制回落
+		Routines = maxRoutines
 	}
 	if TCPPort <= 0 || TCPPort > 65535 {
 		TCPPort = defaultPort
@@ -125,7 +131,8 @@ func (p *Ping) Run() utils.PingDelaySet {
 			break
 		}
 		p.wg.Add(1)
-		p.sem.Acquire(context.Background(), 1)
+		// context.Background 永不取消，Acquire 只会在拿到配额后返回 nil，错误可安全忽略
+		_ = p.sem.Acquire(context.Background(), 1)
 		go p.start(ip)
 	}
 	p.wg.Wait()
@@ -256,13 +263,13 @@ func (p *Ping) tcpingHandler(ip *net.IPAddr) {
 		// 只有平均延迟在上限内才尝试添加
 		if avgDelay <= utils.InputMaxDelay {
 			data := &utils.PingData{
-				IP:            ip,
-				Sended:        PingTimes,
-				Received:      recv,
-				Delay:         avgDelay,
-				Colo:          colo,
-				Port:          GetPortForIP(ip.IP),
-				PortFromUser:  IPPortFromUser[ip.String()],
+				IP:           ip,
+				Sended:       PingTimes,
+				Received:     recv,
+				Delay:        avgDelay,
+				Colo:         colo,
+				Port:         GetPortForIP(ip.IP),
+				PortFromUser: IPPortFromUser[ip.String()],
 			}
 			// 尝试添加数据
 			p.tryAppendIPData(data)

@@ -35,7 +35,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/XIU2/CloudflareSpeedTest/pkg/platform"
+	"github.com/masgzy/CloudflareST/pkg/platform"
 )
 
 // GitHubProxy GitHub 代理默认前缀。
@@ -77,6 +77,21 @@ func resolveURL(raw string) string {
 // LatestVersion 远端 version.txt 的内容（去除空白）
 var LatestVersion string
 
+// versionAPIURL 远端版本号地址（GitHub raw 直连地址）
+const versionAPIURL = "https://github.com/masgzy/CloudflareST/raw/main/version.txt"
+
+// CheckStatus 版本检查结果状态
+//
+//	检查失败、已是最新、发现新版本 三者必须严格区分，
+//	绝不能把"检查失败"误报成"已是最新"（否则旧版本用户会被误导）
+type CheckStatus int
+
+const (
+	CheckFailed    CheckStatus = iota // 检查失败（网络/代理等原因）
+	CheckUpToDate                     // 已是最新版本
+	CheckHasUpdate                    // 远端存在不同版本
+)
+
 // UpdateInfo 解析到的可更新信息
 type UpdateInfo struct {
 	Current   string
@@ -85,25 +100,71 @@ type UpdateInfo struct {
 	URL       string // 完整下载 URL
 }
 
-// CheckUpdate 检查远端 version.txt，最长 10s 超时。
-// 与历史行为保持一致：失败时静默（LatestVersion 留空）。
-// currentVersion 为当前本地版本号；远端不同则写入 LatestVersion。
-func CheckUpdate(currentVersion string) {
-	timeout := 10 * time.Second
-	client := http.Client{Timeout: timeout}
-	res, err := client.Get(resolveURL("https://github.com/masgzy/CloudflareST/raw/main/version.txt"))
+// CheckUpdate 检查远端 version.txt，单次请求最长 10s。
+// 依次尝试：代理前缀 URL → GitHub 直连（任一成功即返回），
+// 仅接受 HTTP 200 且内容形如 "vX.Y.Z..." 的响应，
+// 避免把代理错误页当成版本号，也避免把网络失败误报成"已是最新"。
+func CheckUpdate(currentVersion string) (CheckStatus, error) {
+	client := &http.Client{Timeout: 10 * time.Second}
+
+	// 构造候选 URL：代理版在前，直连版兜底（CFST_GITHUB_PROXY=off 时仅直连）
+	var candidates []string
+	if proxied := resolveURL(versionAPIURL); proxied != versionAPIURL {
+		candidates = append(candidates, proxied)
+	}
+	candidates = append(candidates, versionAPIURL)
+
+	var lastErr error
+	for _, url := range candidates {
+		v, err := fetchVersion(client, url)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if v == strings.TrimSpace(currentVersion) {
+			return CheckUpToDate, nil
+		}
+		LatestVersion = v
+		return CheckHasUpdate, nil
+	}
+	return CheckFailed, lastErr
+}
+
+// fetchVersion 下载并校验远端版本号内容
+func fetchVersion(client *http.Client, url string) (string, error) {
+	res, err := client.Get(url)
 	if err != nil {
-		return
+		return "", err
 	}
 	defer res.Body.Close()
-	body, err := io.ReadAll(res.Body)
+	if res.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("HTTP 状态码 %d", res.StatusCode)
+	}
+	// 版本号极短，限制读取长度，防止把代理错误页/超长响应当成版本号
+	body, err := io.ReadAll(io.LimitReader(res.Body, 64))
 	if err != nil {
-		return
+		return "", err
 	}
 	v := strings.TrimSpace(string(body))
-	if v != "" && v != strings.TrimSpace(currentVersion) {
-		LatestVersion = v
+	if !isValidVersion(v) {
+		return "", fmt.Errorf("响应内容不是有效版本号: %q", v)
 	}
+	return v, nil
+}
+
+// isValidVersion 校验版本号格式：以 v 开头，仅含字母/数字/./-/_（如 v2.3.5-mod-3.1）
+func isValidVersion(v string) bool {
+	if len(v) < 2 || len(v) > 32 || v[0] != 'v' {
+		return false
+	}
+	for i := 1; i < len(v); i++ {
+		c := v[i]
+		if (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '.' || c == '-' || c == '_' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 // HasUpdate 当前是否检测到新版本
@@ -387,7 +448,7 @@ endlocal
 	}
 	fmt.Printf("已暂存新版本到 %s\n", stagePath)
 	fmt.Println("按回车键关闭当前程序并完成更新（将自动重启）...")
-	bufio.NewReader(os.Stdin).ReadString('\n')
+	_, _ = bufio.NewReader(os.Stdin).ReadString('\n') // 读到 EOF（Ctrl+C/D）同样继续更新流程
 	cmd := exec.Command("cmd", "/c", "start", "", batPath)
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("启动更新脚本失败: %w", err)

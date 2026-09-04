@@ -24,7 +24,7 @@
 - [aspnmy/CloudflareSpeedTest](https://github.com/aspnmy/CloudflareSpeedTest) — 性能对标参考（[#650](https://github.com/XIU2/CloudflareSpeedTest/discussions/650)），无直接代码贡献
 
 > [!NOTE]
-> 本项目 `go.mod` 的 module 名仍为 `github.com/XIU2/CloudflareSpeedTest`（fork 时保留），因此 `go install github.com/XIU2/CloudflareSpeedTest@latest` 会拉取上游原版而非本仓库。请通过 [Releases](https://github.com/masgzy/CloudflareST/releases) 下载预编译二进制，或 clone 本仓库后本地 `go build`。
+> 本项目 `go.mod` 的 module 名已在 v2.3.5-mod-3.1 改为 `github.com/masgzy/CloudflareST`，现在可以直接 `go install github.com/masgzy/CloudflareST@latest` 安装；也可以通过 [Releases](https://github.com/masgzy/CloudflareST/releases) 下载预编译二进制，或 clone 本仓库后本地 `go build`。
 
 **修改与新增**
 
