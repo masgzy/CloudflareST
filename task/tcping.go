@@ -35,7 +35,6 @@ import (
 const (
 	tcpConnectTimeout = time.Second * 1
 	defaultRoutines   = 200
-	maxRoutines       = 1000 // 延迟测速线程上限（与帮助文本一致）
 	defaultPort       = 443
 	defaultPingTimes  = 4
 )
@@ -88,9 +87,6 @@ type Ping struct {
 func checkPingDefault() {
 	if Routines <= 0 {
 		Routines = defaultRoutines
-	}
-	if Routines > maxRoutines { // 帮助文本承诺最多 1000，超出部分强制回落
-		Routines = maxRoutines
 	}
 	if TCPPort <= 0 || TCPPort > 65535 {
 		TCPPort = defaultPort
