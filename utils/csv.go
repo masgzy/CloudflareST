@@ -121,9 +121,12 @@ func ExportCsv(data []CloudflareIPData) {
 	fp, err := os.Create(Output)
 	if err != nil {
 		log.Fatalf("创建文件[%s]失败：%v", Output, err)
-		return
 	}
 	defer fp.Close()
+	// 写入 UTF-8 BOM，确保 Excel 直接打开时中文表头不乱码
+	if _, err := fp.WriteString("\xEF\xBB\xBF"); err != nil {
+		log.Fatalf("写入文件[%s]失败：%v", Output, err)
+	}
 	w := csv.NewWriter(fp) //创建一个新的写入文件流
 	_ = w.Write([]string{"IP 地址", "已发送", "已接收", "丢包率", "平均延迟", "下载速度(MB/s)", "地区码"})
 	_ = w.WriteAll(convertToString(data))
@@ -150,10 +153,13 @@ func (s PingDelaySet) FilterDelay() (data PingDelaySet) {
 		return s
 	}
 	for _, v := range s {
-		if v.Delay > InputMaxDelay { // 平均延迟上限，延迟大于条件最大值时，后面的数据都不满足条件，直接跳出循环
-			break
+		// 注意：数组主排序键是丢包率（其次才是延迟），延迟并非单调递增，
+		// 因此这里只能 continue 跳过，绝不能 break——否则会把排在后面、
+		// 丢包率稍高但延迟满足条件的 IP 误杀（尤其默认 -tlr 1.0 不过滤丢包时）
+		if v.Delay > InputMaxDelay { // 平均延迟上限
+			continue
 		}
-		if v.Delay < InputMinDelay { // 平均延迟下限，延迟小于条件最小值时，不满足条件，跳过
+		if v.Delay < InputMinDelay { // 平均延迟下限
 			continue
 		}
 		data = append(data, v) // 延迟满足条件时，添加到新数组中

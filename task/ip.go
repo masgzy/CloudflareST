@@ -59,8 +59,9 @@ func ValidateBindIntf() {
 }
 
 func InitRandSeed() {
-	// Go 1.20+ 已自动播种全局 rand，但为兼容 Go 1.18（go.mod 要求）仍需手动播种。
-	// 在 Go 1.20+ 中此调用会被忽略（仅产生 deprecation 提示），不影响功能。
+	// Go 1.20+ 已自动播种全局 rand；Go 1.24 起 Seed 正式变为 no-op，
+	// 但 GODEBUG 兼容行为跟随 go.mod 的 go 指令（本项目为 go 1.18），
+	// 因此即使使用 Go 1.22~1.24 工具链编译，Seed 仍保持有效，不会影响 _old 老平台构建。
 	rand.Seed(time.Now().UnixNano())
 }
 
@@ -104,49 +105,23 @@ func newIPRanges() *IPRanges {
 }
 
 // 提取端口号，返回剥离端口后的 IP 字符串和端口号（0 表示使用全局默认）
+// 支持格式：1.1.1.1:443、1.1.1.0/24:443、[::1]:443、[2606:4700::/32]:443，
+// 以及无端口形式：1.1.1.1、1.1.1.0/24、::1、[::1]、[2606:4700::/32]、2606:4700::/32
+// 注意：返回的 cleanIP 一律不含方括号（net.ParseCIDR 不接受方括号形式）
 func extractPort(ip string) (cleanIP string, port int) {
-	port = 0 // 0 表示使用全局 TCPPort
-	cleanIP = ip
-
-	// IPv6 格式（含 [] 包裹）: [::1]:443 或 [2606:4700::/32]:443
-	if strings.HasPrefix(ip, "[") {
-		if idx := strings.LastIndex(ip, "]:"); idx > 0 {
-			p, err := strconv.Atoi(ip[idx+2:])
-			if err == nil && p > 0 && p < 65536 {
-				port = p
-				cleanIP = ip[:idx+1] // 保留 [...] 部分
-				return
-			}
+	// 带端口形式交给标准库处理：SplitHostPort 能正确处理方括号 IPv6（"[::1]:80"）
+	// 以及 CIDR 中含 "/" 的写法（"1.1.1.0/24:443"、"[2606:4700::/32]:443"）
+	if host, portStr, err := net.SplitHostPort(ip); err == nil {
+		if p, perr := strconv.Atoi(portStr); perr == nil && p > 0 && p < 65536 {
+			return host, p // host 已由 SplitHostPort 去掉方括号
 		}
-		return // [::1] 或 [2606:4700::/32]，无端口
+		// 端口段非法（如 "1.1.1.1:abc"），整体交回给 ParseCIDR 报错
+		return ip, 0
 	}
 
-	// IPv4 网段含端口: 1.1.1.0/24:443
-	if slashIdx := strings.Index(ip, "/"); slashIdx > 0 {
-		if colonIdx := strings.Index(ip[slashIdx:], ":"); colonIdx > 0 {
-			p, err := strconv.Atoi(ip[slashIdx+colonIdx+1:])
-			if err == nil && p > 0 && p < 65536 {
-				port = p
-				cleanIP = ip[:slashIdx+colonIdx]
-				return
-			}
-		}
-		return // 1.1.1.0/24，无端口
-	}
-
-	// 单 IP（无 /）: 1.1.1.1:443 或 1.1.1.1
-	// 注意 IPv6 不含 [] 时可能有多个冒号（::1），仅当恰好一个冒号时视作 IPv4:端口
-	colonCount := strings.Count(ip, ":")
-	if colonCount == 1 {
-		lastColon := strings.LastIndex(ip, ":")
-		p, err := strconv.Atoi(ip[lastColon+1:])
-		if err == nil && p > 0 && p < 65536 {
-			port = p
-			cleanIP = ip[:lastColon]
-		}
-	}
-	// colonCount==0: 纯 IPv4，无端口；colonCount>1: IPv6，无端口
-	return
+	// 无端口形式：仅需去掉 IPv6 方括号（[::1] → ::1），其余原样返回
+	cleanIP = strings.TrimSuffix(strings.TrimPrefix(ip, "["), "]")
+	return cleanIP, 0
 }
 
 // 如果是单独 IP 则加上子网掩码，反之则获取子网掩码(r.mask)

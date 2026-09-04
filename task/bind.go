@@ -30,9 +30,9 @@ const (
 	// Linux socket 选项
 	SO_BINDTODEVICE = 25
 
-	// macOS socket 选项
-	IP_BOUND_IF   = 0x19
-	IPV6_BOUND_IF = 0x19
+	// macOS socket 选项（来源：Apple xnu 源码 bsd/netinet/in.h 与 bsd/netinet6/in6.h）
+	IP_BOUND_IF   = 0x19 // 25，netinet/in.h
+	IPV6_BOUND_IF = 125  // 0x7d，netinet6/in6.h（注意不是 25，25 在 IPPROTO_IPV6 层是另一个选项）
 
 	// Windows socket 选项
 	IP_UNICAST_IF   = 31
@@ -147,9 +147,12 @@ func getBindInterfaceControl(ifaceName string) func(network, address string, c s
 	// 接口存在，返回正常的绑定函数
 	return func(network, address string, c syscall.RawConn) error {
 		var setErr error
-		c.Control(func(fd uintptr) {
+		// Control 本身也可能返回错误（如连接已关闭），需要一并传播
+		if ctrlErr := c.Control(func(fd uintptr) {
 			setErr = bindInterface(fd, ifaceName, iface.Index, network)
-		})
+		}); ctrlErr != nil {
+			return ctrlErr
+		}
 		return setErr
 	}
 }
