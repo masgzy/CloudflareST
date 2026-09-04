@@ -432,6 +432,12 @@ cfst -ipv6
 # 也可以直接通过参数指定要测速的 IP（支持指定端口）
 cfst -ip 1.1.1.1,2606:4700::/32
 cfst -ip 1.1.1.1:443,2.2.2.0/24:8443
+
+# 支持对网段指定采样数量（均匀分区间随机采样，结果不重复），搭配 -tn 提前结束延迟测速更高效
+cfst -ip 2606:4700::/48=1000 -tn 300
+cfst -ip 104.16.0.0/24=50,[2606:4700::/32]:443=200
+
+# IP 数据文件（-f）同样支持端口、「网段=数量」写法，以及 # 与 // 开头的注释行；重复的 IP 段会自动去重
 ```
 
 > `cf.txt` / `cf6.txt` 在每次 GitHub Actions 构建时从 `https://www.cloudflare.com/ips-v4/` 和 `https://www.cloudflare.com/ips-v6/` 拉取，随 release 资源一起发布；旧版 `-cfips` 及其子命令已移除。
@@ -1066,6 +1072,12 @@ go build -o Releases/cfst_windows_386/cfst.exe -ldflags "-s -w -X main.version=$
 ```
 
 </details>
+
+****
+
+## 开发计划
+
+尚未实现的功能与优化统一记录在 [TODO.md](TODO.md)（如 ICMP Ping 模式、框线结果表格、一键安装脚本等），欢迎按需取用 / 提 PR。
 
 ****
 

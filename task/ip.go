@@ -22,7 +22,11 @@ package task
 
 import (
 	"bufio"
+	crand "crypto/rand"
+	"encoding/binary"
+	"fmt"
 	"log"
+	"math/big"
 	"math/rand"
 	"net"
 	"os"
@@ -231,46 +235,178 @@ func (r *IPRanges) chooseIPv6() {
 	}
 }
 
-func loadIPRanges() []*net.IPAddr {
-	ranges := newIPRanges()
-	if IPText != "" { // 从参数中获取 IP 段数据
-		IPs := strings.Split(IPText, ",") // 以逗号分隔为数组并循环遍历
-		for _, IP := range IPs {
-			IP = strings.TrimSpace(IP) // 去除首尾的空白字符（空格、制表符、换行符等）
-			if IP == "" {              // 跳过空的（即开头、结尾或连续多个 ,, 的情况）
-				continue
-			}
-			ranges.parseCIDR(IP) // 解析 IP 段，获得 IP、IP 范围、子网掩码
-			if isIPv4(IP) {      // 生成要测速的所有 IPv4 / IPv6 地址（单个/随机/全部）
-				ranges.chooseIPv4()
-			} else {
-				ranges.chooseIPv6()
-			}
-		}
+// ipSourceEntry 一个 IP 来源条目（-ip 参数中的一段，或文件中的一行）
+type ipSourceEntry struct {
+	ipPart string // 剥离 "=数量" 后的 IP/CIDR 部分（可能仍含端口）
+	count  int    // 用户指定的采样数量（CIDR=数量 语法），0 表示未指定
+}
+
+// cleanIPSourceLine 清理单个来源条目：去首尾空白，跳过空行与注释行（# 或 // 开头）
+func cleanIPSourceLine(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" || strings.HasPrefix(s, "#") || strings.HasPrefix(s, "//") {
+		return ""
+	}
+	return s
+}
+
+// parseSourceEntry 解析单个来源条目，支持 "CIDR=数量" 采样语法
+// 例如：2606:4700::/48=1000 表示对该网段均匀采样最多 1000 个 IP
+// 单独 IP（/32、/128）指定的数量会被忽略（仅一个地址可测）
+func parseSourceEntry(raw string) (ipSourceEntry, error) {
+	entry := ipSourceEntry{ipPart: raw}
+	idx := strings.IndexByte(raw, '=')
+	if idx < 0 { // 无 "=数量" 部分
+		return entry, nil
+	}
+	entry.ipPart = strings.TrimSpace(raw[:idx])
+	if entry.ipPart == "" {
+		return entry, fmt.Errorf("IP 段 [%s] 无效：缺少 IP/CIDR 部分", raw)
+	}
+	countStr := strings.TrimSpace(raw[idx+1:])
+	count, err := strconv.Atoi(countStr)
+	if err != nil || count <= 0 {
+		return entry, fmt.Errorf("IP 段 [%s] 的采样数量 [%s] 无效（应为正整数，如 2606:4700::/48=1000）", raw, countStr)
+	}
+	entry.count = count
+	return entry, nil
+}
+
+// collectIPSources 收集、清理并去重 IP 来源条目
+// 优先级：-ip 参数 > -f 文件（与历史行为一致）；仅对生效的来源做去重
+// 去重按清理后的原始文本匹配（保留首次出现顺序）
+func collectIPSources() ([]ipSourceEntry, error) {
+	var lines []string
+	if IPText != "" { // 从参数中获取 IP 段数据（英文逗号分隔）
+		lines = strings.Split(IPText, ",")
 	} else { // 从文件中获取 IP 段数据
 		if IPFile == "" {
 			IPFile = defaultInputFile
 		}
+		if _, err := os.Stat(IPFile); err != nil {
+			return nil, fmt.Errorf("IP 数据文件不存在: %s", IPFile)
+		}
 		file, err := os.Open(IPFile)
 		if err != nil {
-			log.Fatal(err)
+			return nil, fmt.Errorf("读取 IP 数据文件 [%s] 失败：%v", IPFile, err)
 		}
 		defer file.Close()
 		scanner := bufio.NewScanner(file)
 		for scanner.Scan() { // 循环遍历文件每一行
-			line := strings.TrimSpace(scanner.Text()) // 去除首尾的空白字符（空格、制表符、换行符等）
-			if line == "" {                           // 跳过空行
-				continue
-			}
-			ranges.parseCIDR(line) // 解析 IP 段，获得 IP、IP 范围、子网掩码
-			if isIPv4(line) {      // 生成要测速的所有 IPv4 / IPv6 地址（单个/随机/全部）
-				ranges.chooseIPv4()
-			} else {
-				ranges.chooseIPv6()
-			}
+			lines = append(lines, scanner.Text())
 		}
 		if err := scanner.Err(); err != nil {
-			log.Fatalf("读取 IP 数据文件 [%s] 失败：%v", IPFile, err)
+			return nil, fmt.Errorf("读取 IP 数据文件 [%s] 失败：%v", IPFile, err)
+		}
+	}
+
+	seen := make(map[string]struct{}, len(lines))
+	entries := make([]ipSourceEntry, 0, len(lines))
+	for _, line := range lines {
+		clean := cleanIPSourceLine(line)
+		if clean == "" { // 跳过空行、注释行（即开头、结尾或连续多个 ,, 的情况）
+			continue
+		}
+		if _, dup := seen[clean]; dup { // 跳过重复条目（保序去重）
+			continue
+		}
+		seen[clean] = struct{}{}
+		entry, err := parseSourceEntry(clean)
+		if err != nil {
+			return nil, err
+		}
+		entries = append(entries, entry)
+	}
+	return entries, nil
+}
+
+// chooseIPv4Counted 对整个 IPv4 网段均匀分区间采样 count 个 IP：
+// 将网段地址范围均分为 count 个区间，每个区间内随机取 1 个（区间互不重叠，结果天然无重复）
+// 用户指定数量优先于 [-allip]；count 大于网段地址总数时钳制为总数（即测全部）
+func (r *IPRanges) chooseIPv4Counted(count int) {
+	if r.mask == "/32" { // 单个 IP 无需采样，直接加入自身
+		r.appendIP(r.firstIP)
+		return
+	}
+	ones, _ := r.ipNet.Mask.Size()
+	size := uint64(1) << uint(32-ones) // 网段地址总数（最大 2^32，uint64 安全）
+	if size < uint64(count) {          // 钳制：数量不超过网段地址总数（此时 size 必然可安全转 int）
+		count = int(size)
+	}
+	start := binary.BigEndian.Uint32(r.firstIP.To4()) // 网段起始地址（ParseCIDR 结果已按掩码对齐）
+	interval := size / uint64(count)                  // 每个区间长度（≥1）
+	lastSize := size - interval*uint64(count-1)       // 最后一个区间的实际长度（补整除余数）
+	for i := 0; i < count; i++ {
+		var off uint64
+		if i == count-1 { // 最后一个区间
+			if lastSize > 1 {
+				off = rand.Uint64() % lastSize
+			}
+		} else if interval > 1 {
+			off = rand.Uint64() % interval
+		}
+		ip := uint64(start) + uint64(i)*interval + off // 恒 ≤ 网段末尾地址，不会溢出
+		r.appendIP(net.IPv4(byte(ip>>24), byte(ip>>16), byte(ip>>8), byte(ip)))
+	}
+}
+
+// chooseIPv6Counted 对整个 IPv6 网段均匀分区间采样 count 个 IP（同 chooseIPv4Counted）
+// IPv6 地址范围为 128 位，使用 math/big 计算，随机偏移使用 crypto/rand 保证全区间均匀覆盖
+func (r *IPRanges) chooseIPv6Counted(count int) {
+	if r.mask == "/128" { // 单个 IP 无需采样，直接加入自身
+		r.appendIP(r.firstIP)
+		return
+	}
+	ones, _ := r.ipNet.Mask.Size()
+	size := new(big.Int).Lsh(big.NewInt(1), uint(128-ones)) // 网段地址总数（最大 2^128）
+	maxCount := uint64(^uint(0) >> 1)                       // int 平台最大值（兼容 32 位构建）
+	if size.IsUint64() && size.Uint64() < maxCount && size.Uint64() < uint64(count) {
+		count = int(size.Uint64()) // 钳制：数量不超过网段地址总数（小网段才可能命中）
+	}
+	start := new(big.Int).SetBytes(r.firstIP.To16()) // 网段起始地址（ParseCIDR 结果已按掩码对齐）
+	countBig := big.NewInt(int64(count))
+	interval := new(big.Int).Div(size, countBig) // 每个区间长度（≥1）
+	lastSize := new(big.Int).Sub(size, new(big.Int).Mul(interval, big.NewInt(int64(count-1))))
+	one := big.NewInt(1)
+	for i := 0; i < count; i++ {
+		mod := interval // 本区间长度（随机偏移的取值范围上限）
+		if i == count-1 {
+			mod = lastSize
+		}
+		var off *big.Int
+		if mod.Cmp(one) > 0 { // 区间长度 > 1 才需要随机，crypto/rand.Int 支持 2^128 内任意模数
+			off, _ = crand.Int(crand.Reader, mod)
+		} else {
+			off = big.NewInt(0)
+		}
+		ipBig := new(big.Int).Add(start, new(big.Int).Add(new(big.Int).Mul(big.NewInt(int64(i)), interval), off))
+		r.appendIP(net.IP(ipBig.FillBytes(make([]byte, 16))))
+	}
+}
+
+func loadIPRanges() []*net.IPAddr {
+	ranges := newIPRanges()
+	sources, err := collectIPSources()
+	if err != nil {
+		log.Fatal(err)
+	}
+	if len(sources) == 0 { // 来源清理后一条不剩（如文件全是注释/空行），明确报错而非静默空跑
+		log.Fatal("未获取到任何 IP 或 CIDR，请检查 [-ip] 参数或 IP 数据文件内容")
+	}
+	for _, source := range sources {
+		ranges.parseCIDR(source.ipPart) // 解析 IP 段，获得 IP、IP 范围、子网掩码、端口
+		if source.count > 0 {           // 指定了采样数量（CIDR=数量），均匀分区间采样
+			if isIPv4(source.ipPart) {
+				ranges.chooseIPv4Counted(source.count)
+			} else {
+				ranges.chooseIPv6Counted(source.count)
+			}
+			continue
+		}
+		if isIPv4(source.ipPart) { // 生成要测速的所有 IPv4 / IPv6 地址（单个/随机/全部）
+			ranges.chooseIPv4()
+		} else {
+			ranges.chooseIPv6()
 		}
 	}
 	return ranges.ips
