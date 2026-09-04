@@ -50,9 +50,9 @@ var (
 	UseZScore        = false // 是否启用综合排序（-zscore 控制）
 )
 
-// 是否打印测试结果
+// 是否打印测试结果（负值视为不打印，避免切片越界）
 func NoPrintResult() bool {
-	return PrintNum == 0
+	return PrintNum <= 0
 }
 
 // 是否输出到文件
@@ -269,20 +269,32 @@ func (s DownloadSpeedSet) Print() {
 	if len(dateString) < PrintNum {  // 如果IP数组长度(IP数量) 小于  打印次数，则次数改为IP数量
 		PrintNum = len(dateString)
 	}
-	headFormat := "%-16s%-5s%-5s%-5s%-6s%-12s%-5s\n"
-	dataFormat := "%-18s%-8s%-8s%-8s%-10s%-16s%-8s\n"
-	ipv6Format := "%-40s%-5s%-5s%-5s%-6s%-12s%-5s\n"
-	ipv6DataFormat := "%-42s%-8s%-8s%-8s%-10s%-16s%-8s\n"
-	for i := 0; i < PrintNum; i++ { // 如果要输出的 IP 中包含 IPv6 或端口(>15字符)，则调整列宽
-		if len(dateString[i][0]) > 15 {
-			headFormat = ipv6Format
-			dataFormat = ipv6DataFormat
-			break
+	// 自适应列宽：取表头与数据各列的最大显示宽度 + 2 列间距（中日韩字符按 2 列计，IPv6/端口自动加宽）
+	rows := make([][]string, 0, PrintNum+1)
+	rows = append(rows, []string{"IP 地址", "已发送", "已接收", "丢包率", "平均延迟", "下载速度(MB/s)", "地区码"})
+	rows = append(rows, dateString[:PrintNum]...)
+	colWidth := make([]int, len(rows[0]))
+	for _, row := range rows {
+		for j, cell := range row {
+			if w := displayWidth(cell) + 2; w > colWidth[j] {
+				colWidth[j] = w
+			}
 		}
 	}
-	Cyan.Printf(headFormat, "IP 地址", "已发送", "已接收", "丢包率", "平均延迟", "下载速度(MB/s)", "地区码")
-	for i := 0; i < PrintNum; i++ {
-		fmt.Printf(dataFormat, dateString[i][0], dateString[i][1], dateString[i][2], dateString[i][3], dateString[i][4], dateString[i][5], dateString[i][6])
+	for i, row := range rows { // 末列不再补空格，避免行尾多余空白
+		line := ""
+		for j, cell := range row {
+			if j == len(row)-1 {
+				line += cell
+			} else {
+				line += padDisplay(cell, colWidth[j])
+			}
+		}
+		if i == 0 {
+			Cyan.Println(line)
+		} else {
+			fmt.Println(line)
+		}
 	}
 	if !noOutput() {
 		fmt.Printf("\n完整测速结果已写入 %v 文件，可使用记事本/表格软件查看。\n", Output)
