@@ -33,6 +33,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/masgzy/CloudflareST/utils"
 )
 
 const defaultInputFile = "ip.txt"
@@ -49,6 +51,9 @@ var (
 	ProgramTimeout int
 	// GlobalEarlyStop 全局停止标志，用于超时退出
 	GlobalEarlyStop int32
+	// TotalNum 总测速 IP 数量（-qn 控制）：从 IP 段按此总量尽量均匀采样生成待测 IP；
+	// 0 表示按默认规则生成（IPv4 每个 /24 随机一个，IPv6 随机生成），与 -allip 同时指定时本参数优先
+	TotalNum = 0
 )
 
 // ValidateBindIntf 验证 BindIntf 参数是否有效
@@ -384,6 +389,66 @@ func (r *IPRanges) chooseIPv6Counted(count int) {
 	}
 }
 
+// srcCapacity 估算单个 IP 来源的地址总数（用于 -qn 配额钳制）。
+// IPv6 大网段地址数可能远超 int 上限，饱和处理为 maxInt（仅参与比较，不影响结果精度）。
+func srcCapacity(ipNet *net.IPNet, ipv4 bool) int {
+	const maxInt = int(^uint(0) >> 1)
+	ones, _ := ipNet.Mask.Size()
+	if ipv4 {
+		size := uint64(1) << uint(32-ones)
+		if size > uint64(maxInt) {
+			return maxInt
+		}
+		return int(size)
+	}
+	if bits := 128 - ones; bits < 64 {
+		return int(uint64(1) << uint(bits))
+	}
+	return maxInt
+}
+
+// allocateQuotas 将总测速数量 total 尽量平均分配到各 IP 来源（受各来源地址容量钳制），
+// 保证总量精确用完（或全部来源容量用尽）。返回各来源配额及未能分配的剩余量。
+// 剩余量 > 0 说明 IP 段地址总数不足，等价于测全部。
+func allocateQuotas(capacities []int, total int) (quotas []int, remaining int) {
+	quotas = make([]int, len(capacities))
+	remaining = total
+	active := make([]int, len(capacities))
+	for i := range active {
+		active[i] = i
+	}
+	for remaining > 0 && len(active) > 0 {
+		share := remaining / len(active)
+		if share < 1 {
+			share = 1 // 剩余量少于来源数时逐个分配
+		}
+		progressed := false
+		next := active[:0]
+		for _, i := range active {
+			give := share
+			if give > capacities[i] {
+				give = capacities[i]
+			}
+			if give > remaining {
+				give = remaining
+			}
+			if give > 0 {
+				quotas[i] += give
+				remaining -= give
+				progressed = true
+			}
+			if quotas[i] < capacities[i] {
+				next = append(next, i)
+			}
+		}
+		active = next
+		if !progressed {
+			break
+		}
+	}
+	return quotas, remaining
+}
+
 func loadIPRanges() []*net.IPAddr {
 	ranges := newIPRanges()
 	sources, err := collectIPSources()
@@ -392,6 +457,36 @@ func loadIPRanges() []*net.IPAddr {
 	}
 	if len(sources) == 0 { // 来源清理后一条不剩（如文件全是注释/空行），明确报错而非静默空跑
 		log.Fatal("未获取到任何 IP 或 CIDR，请检查 [-ip] 参数或 IP 数据文件内容")
+	}
+	if TotalNum > 0 { // -qn：对未显式指定数量的条目按总测速量配额采样（「网段=数量」条目不受影响）
+		capacities := make([]int, len(sources))
+		needQuota := make([]bool, len(sources))
+		tmp := newIPRanges() // 仅用于解析掩码/容量，不生成 IP
+		for i, source := range sources {
+			tmp.parseCIDR(source.ipPart)
+			capacities[i] = srcCapacity(tmp.ipNet, isIPv4(source.ipPart))
+			needQuota[i] = source.count == 0
+		}
+		quotas, remaining := allocateQuotas(capacities, TotalNum)
+		if remaining > 0 {
+			utils.Tip("[-qn] 指定数量超过 IP 段地址总数，将测试全部可生成的 IP。")
+		}
+		for i, source := range sources {
+			ranges.parseCIDR(source.ipPart)
+			count := source.count // 显式指定的采样数量优先
+			if needQuota[i] {
+				count = quotas[i]
+			}
+			if count <= 0 {
+				continue
+			}
+			if isIPv4(source.ipPart) {
+				ranges.chooseIPv4Counted(count)
+			} else {
+				ranges.chooseIPv6Counted(count)
+			}
+		}
+		return ranges.ips
 	}
 	for _, source := range sources {
 		ranges.parseCIDR(source.ipPart) // 解析 IP 段，获得 IP、IP 范围、子网掩码、端口

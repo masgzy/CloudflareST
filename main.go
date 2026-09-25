@@ -87,16 +87,24 @@ func init() {
     -httping-code 200
         有效状态代码；HTTPing 延迟测速时网页返回的有效 HTTP 状态码，仅限一个；(默认 200 301 302)
     -cfcolo HKG,KHH,NRT,LAX,SEA,SJC,FRA,MAD
-        匹配指定地区；IATA 机场地区码或国家/城市码，英文逗号分隔，仅 HTTPing 模式可用；(默认 所有地区)
+        匹配指定地区；IATA 机场地区码或国家/城市码，英文逗号分隔，大小写均可；(默认 所有地区)
+        HTTPing 模式在延迟测速时直接过滤；TCPing 模式会自动启用 [-getcolo] 获取地区码后过滤
+        （地区码获取失败的 N/A 结果会被移除）
     -dd
         禁用下载测速；禁用后测速结果会按延迟排序 (默认按下载速度排序)；(默认 启用)
     -getcolo
         强制获取机场三字码；TCPing 模式下结果默认显示 N/A，开启后会对测速结果
         逐个发起轻量 HEAD 请求（不计入测速结果）补齐地区码，搭配 [-dd] 使用效果最佳；
-        HTTPing 模式无需开启（本身已获取）；地区码仅用于展示，不参与 [-cfcolo] 过滤；(默认 关闭)
+        获取的地区码会参与 [-cfcolo] 过滤（指定 [-cfcolo] 时无需手动开启本参数）；
+        HTTPing 模式无需开启（本身已获取）；(默认 关闭)
     -allip
         测速全部的IP；对 IP 段中的每个 IP (仅支持 IPv4) 进行测速；(默认 每个 /24 段随机测速一个 IP)
         （指定了「网段=数量」的条目不受此参数影响，会按指定数量采样）
+    -qn 1000
+        总测速 IP 数量；从 IP 段中按此总量尽量均匀采样生成待测 IP（IPv4/IPv6 均支持），
+        数量在各 IP 段间平均分配（受段大小钳制），超过地址总数时测全部；
+        指定了「网段=数量」的条目不受影响；与 [-allip] 同时指定时本参数优先；
+        搭配 [-tn] 提前结束延迟测速效率更高，例如：cfst -qn 2000 -tn 300；(默认 0 按默认规则生成)
     -pi 0
         每次 ping 间隔；单个 IP 每次延迟测速之间的间隔时间（毫秒），0 表示不间隔；若测速后 IP 不可用可尝试设置 100-200；(默认 0)
     -intf eth0
@@ -163,6 +171,7 @@ func init() {
 	flag.BoolVar(&task.Disable, "dd", false, "禁用下载测速")
 	flag.BoolVar(&task.ForceGetColo, "getcolo", false, "强制获取机场三字码")
 	flag.BoolVar(&task.TestAll, "allip", false, "测速全部 IP")
+	flag.IntVar(&task.TotalNum, "qn", 0, "总测速 IP 数量")
 	flag.BoolVar(&utils.ShowPort, "sp", false, "显示端口号")
 	flag.BoolVar(&utils.UseZScore, "zs", false, "综合排序模式")
 
@@ -208,6 +217,23 @@ func init() {
 	task.PingInterval = time.Duration(pingInterval) * time.Millisecond
 	task.HttpingCFColomap = task.MapColoMap()
 	task.ProgramTimeout = programTimeout
+
+	// -qn 参数校验与冲突处理
+	if task.TotalNum < 0 {
+		utils.Error("总测速 IP 数量 [-qn] 不能为负数。")
+		os.Exit(1)
+	}
+	if task.TotalNum > 0 && task.TestAll {
+		// -qn 是更具体的数量意图，优先于 -allip
+		utils.Tip("[-qn] 与 [-allip] 同时指定，按 [-qn] 的总测速数量采样。")
+	}
+
+	// TCPing 模式下 -cfcolo 过滤依赖地区码：自动启用 -getcolo，
+	// 测速结束后对结果发起轻量请求获取地区码并参与过滤
+	if task.HttpingCFColomap != nil && !task.Httping && !task.ForceGetColo {
+		task.ForceGetColo = true
+		utils.Tip("TCPing 模式下 [-cfcolo] 过滤需要地区码，已自动启用 [-getcolo]（测速结束后向 [-url] 发起轻量请求获取）。")
+	}
 
 	// -httping 模式下未显式指定 -tp 时，按测速地址协议自动选择端口（http→80、https→443）
 	// 避免用户用 http:// 地址测速却忘改 -tp 80，导致全部请求撞上 TLS 握手失败
@@ -269,6 +295,8 @@ func init() {
 	if task.ForceGetColo {
 		if task.Httping {
 			utils.Tip("[-httping] 模式本身已通过响应头获取地区码，[-getcolo] 参数无实际作用。")
+		} else if task.HttpingCFColomap != nil {
+			utils.Tip("已开启 [-getcolo]：测速结束后将向 [-url] 发起轻量请求获取地区码，并按 [-cfcolo] 过滤。")
 		} else if task.Disable {
 			utils.Tip("已开启 [-getcolo]：测速结束后将向 [-url] 发起轻量请求以获取地区码。")
 		}

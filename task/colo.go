@@ -85,6 +85,21 @@ func TestGetColo(ipSet utils.PingDelaySet) utils.PingDelaySet {
 	}
 	wg.Wait()
 	bar.Done()
+	// -cfcolo 过滤：HTTPing 模式在延迟测速阶段已过滤；TCPing 模式的地区码由本函数补齐，
+	// 因此在此处统一过滤。获取失败的空地区码同样被移除（与 HTTPing 下无法解析地区码的处理一致）。
+	if HttpingCFColomap != nil {
+		filtered := make(utils.PingDelaySet, 0, len(ipSet))
+		for i := range ipSet {
+			if ipSet[i].Colo == "" {
+				continue
+			}
+			if _, ok := HttpingCFColomap.Load(ipSet[i].Colo); ok {
+				filtered = append(filtered, ipSet[i])
+			}
+		}
+		fmt.Printf("地区码过滤（[-cfcolo]）：%d → %d\n", len(ipSet), len(filtered))
+		return filtered
+	}
 	return ipSet
 }
 
