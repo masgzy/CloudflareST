@@ -30,7 +30,7 @@
 
 **为保证运行时终端的简洁和保留原作者署名，声明信息仅在首次运行时输出**(判断靠.first_run文件，此文件也会放在发行版的压缩包里面)
 
-**注:** 在修改本项目时，我借助了生成式AI大语言模型(使用的模型包括GLM-5,MiniMax-m2.5,MiniMax-m2.7,DeepSeek-v4-pro,mimo-v2.5-pro,MiniMax-m3,GLM-5.2等)来进行一些代码修改。最终的所有修改均由我本人决策并合并，并由我本人进行测试，以确保项目质量。部分文档和发行版内容使用Deepseek,mimo-v2.5-pro,MiniMax-m3和GLM-5.2进行生成。
+**注:** 在修改本项目时，我借助了生成式AI大语言模型(使用的模型包括GLM-5,MiniMax-m2.5,MiniMax-m2.7,DeepSeek-v4-pro,mimo-v2.5-pro,MiniMax-m3,GLM-5.2,5.3,5.3Flash等)来进行一些代码修改。最终的所有修改均由我本人决策并合并，并由我本人进行测试，以确保项目质量。部分文档和发行版内容使用Deepseek,mimo-v2.5-pro,MiniMax-m3和GLM-5.2,5.3,5.3Flash进行生成。
 
 我会不定时地查看[原项目](https://github.com/XIU2/CloudflareSpeedTest)的更新和[GuangYu-yu/CloudflareST-Rust](https://github.com/GuangYu-yu/CloudflareST-Rust)的更新，并同步，部分改动可能不会同步。
 
