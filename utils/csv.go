@@ -262,7 +262,8 @@ func (s DownloadSpeedSet) Print() {
 		return
 	}
 	if len(s) <= 0 { // IP数组长度(IP数量) 大于 0 时继续
-		fmt.Println("\n[信息] 完整测速结果 IP 数量为 0，跳过输出结果。")
+		fmt.Println()
+		Info("完整测速结果 IP 数量为 0，跳过输出结果。")
 		return
 	}
 	dateString := convertToString(s) // 转为多维数组 [][]String

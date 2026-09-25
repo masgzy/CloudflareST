@@ -21,6 +21,8 @@
 package utils
 
 import (
+	"fmt"
+
 	"github.com/fatih/color"
 )
 
@@ -34,3 +36,43 @@ var (
 	Cyan    = color.New(color.FgHiCyan, color.Bold) // 青色 36
 	White   = color.New(color.FgWhite)              // 白色 37
 )
+
+// 日志前缀着色（B10）：仅前缀带颜色、正文保持默认色，替代「整行着色 / 纯文本前缀」。
+// NO_COLOR 环境变量或非 TTY 场景下，fatih/color 自动退化为纯文本前缀。
+var (
+	prefixInfo  = color.New(color.FgHiCyan, color.Bold)   // [信息] 青
+	prefixWarn  = color.New(color.FgHiYellow, color.Bold) // [警告] 黄
+	prefixError = color.New(color.FgRed, color.Bold)      // [错误] 红
+	prefixTip   = color.New(color.FgYellow)               // [提示] 黄
+	prefixDebug = color.New(color.FgMagenta)              // [调试] 紫红
+)
+
+// logPrefixf 输出「彩色前缀 + 正文」的统一入口（正文自动换行，format 末尾无需 \n）
+func logPrefixf(p *color.Color, prefix, format string, a ...interface{}) {
+	fmt.Println(p.Sprint(prefix), fmt.Sprintf(format, a...))
+}
+
+// Info 输出 [信息] 级别日志（青色前缀）
+func Info(format string, a ...interface{}) {
+	logPrefixf(prefixInfo, "[信息]", format, a...)
+}
+
+// Warn 输出 [警告] 级别日志（黄色前缀）
+func Warn(format string, a ...interface{}) {
+	logPrefixf(prefixWarn, "[警告]", format, a...)
+}
+
+// Error 输出 [错误] 级别日志（红色前缀）
+func Error(format string, a ...interface{}) {
+	logPrefixf(prefixError, "[错误]", format, a...)
+}
+
+// Tip 输出 [提示] 级别日志（黄色前缀）
+func Tip(format string, a ...interface{}) {
+	logPrefixf(prefixTip, "[提示]", format, a...)
+}
+
+// Debugf 输出 [调试] 级别日志（紫红色前缀），仅 -debug 模式下由调用方启用
+func Debugf(format string, a ...interface{}) {
+	logPrefixf(prefixDebug, "[调试]", format, a...)
+}
