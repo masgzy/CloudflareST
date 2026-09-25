@@ -23,12 +23,14 @@
 package utils
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/fatih/color"
@@ -41,7 +43,7 @@ const (
 	waveWidth            = 16.0 // 波动宽度
 	speedFactor          = 0.3  // 速度因子
 	saturationBase       = 0.6  // 基础饱和度
-	refreshIntervalMs    = 40   // TTY 模式刷新间隔（毫秒）
+	refreshIntervalMs    = 16   // TTY 模式刷新间隔（毫秒），约 60fps，动画更流畅（B11）
 	nonTTYRefreshMs      = 1000 // 非 TTY 模式刷新间隔（毫秒），避免管道输出刷屏
 	terminalDefaultWidth = 80   // 默认终端宽度
 )
@@ -252,8 +254,21 @@ func (b *Bar) renderOnce() {
 		}
 	}
 
-	// 输出到终端
-	os.Stdout.WriteString(output)
+	// 输出到终端；下游（如管道）已关闭时安全退出，避免空转与刷屏（B11）
+	if _, err := os.Stdout.WriteString(output); err != nil {
+		handleStdoutWriteError(err)
+	}
+}
+
+// handleStdoutWriteError 处理进度条写入失败（B11：BrokenPipe 安全退出）。
+// 说明：对 stdout（fd 1）的 EPIPE，Go 运行时会直接以 SIGPIPE 终止进程
+// （os/signal 无法拦截），因此这里的 EPIPE 分支主要覆盖非标准 fd 场景；
+// 无论走到哪个分支，都保证不打印堆栈、不残留渲染协程。
+func handleStdoutWriteError(err error) {
+	if errors.Is(err, syscall.EPIPE) {
+		StopAllProgress()
+		os.Exit(0)
+	}
 }
 
 // buildProgressBar 构建进度条
