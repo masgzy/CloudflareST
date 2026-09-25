@@ -29,6 +29,7 @@ import (
 	"os"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -282,21 +283,44 @@ func (s DownloadSpeedSet) Print() {
 			}
 		}
 	}
-	for i, row := range rows { // 末列不再补空格，避免行尾多余空白
-		line := ""
-		for j, cell := range row {
-			if j == len(row)-1 {
-				line += cell
-			} else {
-				line += padDisplay(cell, colWidth[j])
-			}
+	// 框线样式（B8）：上下框线 + 表头反色高亮，对齐 CloudflareST-Rust 的观感
+	// 边框字符为单列宽，配合 displayWidth 计算可保证中日韩内容下依然严格对齐
+	colorOK := SupportsColor()
+	dim := func(s string) string {
+		if !colorOK {
+			return s
 		}
-		if i == 0 {
-			Cyan.Println(line)
-		} else {
-			fmt.Println(line)
-		}
+		return "\x1b[90m" + s + "\x1b[0m" // 亮黑色（暗灰）框线
 	}
+	hline := func(left, mid, right string) string {
+		line := ""
+		for j, w := range colWidth {
+			if j > 0 {
+				line += mid
+			}
+			line += strings.Repeat("─", w)
+		}
+		return dim(left + line + right)
+	}
+	tableLine := func(cells []string, header bool) string {
+		line := ""
+		for j, cell := range cells {
+			// 先按显示宽度补齐再加 ANSI 反色，避免转义字符参与宽度计算
+			padded := padDisplay(cell, colWidth[j])
+			if header && colorOK {
+				padded = "\x1b[7m" + padded + "\x1b[0m"
+			}
+			line += dim("│") + padded
+		}
+		return line + dim("│")
+	}
+	fmt.Println(hline("┌", "┬", "┐"))
+	fmt.Println(tableLine(rows[0], true))
+	fmt.Println(hline("├", "┼", "┤"))
+	for _, row := range rows[1:] {
+		fmt.Println(tableLine(row, false))
+	}
+	fmt.Println(hline("└", "┴", "┘"))
 	if !noOutput() {
 		fmt.Printf("\n完整测速结果已写入 %v 文件，可使用记事本/表格软件查看。\n", Output)
 	}
