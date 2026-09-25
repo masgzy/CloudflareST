@@ -192,14 +192,14 @@ func init() {
 
 	// -tll 高于 -tl 时自动钳制到上限，避免上下限矛盾导致过滤结果全为空
 	if minDelay > maxDelay {
-		utils.Yellow.Println("[提示] 平均延迟下限 [-tll] 高于上限 [-tl]，已自动调整为上限值。")
+		utils.Tip("平均延迟下限 [-tll] 高于上限 [-tl]，已自动调整为上限值。")
 		minDelay = maxDelay
 	}
 
 	// 注意：此处比较的是 utils.InputMaxDelay 的默认值（尚未被下方的赋值覆盖），
 	// 用于判断用户是否未指定 -tl 参数（即仍为默认 9999ms）。
 	if task.MinSpeed > 0 && time.Duration(maxDelay)*time.Millisecond == utils.InputMaxDelay {
-		utils.Yellow.Println("[提示] 在使用 [-sl] 参数时，建议搭配 [-tl] 参数，以避免因凑不够 [-dn] 数量而一直测速...")
+		utils.Tip("在使用 [-sl] 参数时，建议搭配 [-tl] 参数，以避免因凑不够 [-dn] 数量而一直测速...")
 	}
 	utils.InputMaxDelay = time.Duration(maxDelay) * time.Millisecond
 	utils.InputMinDelay = time.Duration(minDelay) * time.Millisecond
@@ -214,7 +214,7 @@ func init() {
 	if task.Httping && !tpSet {
 		if strings.HasPrefix(task.URL, "http://") && task.TCPPort != 80 {
 			task.TCPPort = 80
-			utils.Yellow.Println("[提示] 已根据 [-httping] 测速地址的 HTTP 协议自动选择测速端口 80（可用 [-tp] 覆盖）。")
+			utils.Tip("已根据 [-httping] 测速地址的 HTTP 协议自动选择测速端口 80（可用 [-tp] 覆盖）。")
 		}
 		// https 默认端口即为 443，无需处理
 	}
@@ -236,14 +236,14 @@ func init() {
 				os.Exit(0)
 			}
 			if err := update.PerformUpdate(context.Background()); err != nil {
-				utils.Red.Printf("更新失败: %v\n", err)
+				utils.Error("更新失败: %v", err)
 				fmt.Println("可前往 https://github.com/masgzy/CloudflareST/releases/latest 手动下载。")
 				os.Exit(1)
 			}
 			utils.Green.Println("更新完成！请重新启动程序。")
 		default: // update.CheckFailed
 			// 绝不能把"检查失败"说成"已是最新"，明确告知用户原因并给出手动检查途径
-			utils.Red.Printf("检查更新失败（%v）。\n", checkErr)
+			utils.Error("检查更新失败（%v）。", checkErr)
 			fmt.Printf("当前版本 [%s]，可稍后重试，或前往 https://github.com/masgzy/CloudflareST/releases/latest 手动检查新版本。\n", version)
 		}
 		os.Exit(0)
@@ -254,23 +254,23 @@ func init() {
 	// -getcolo 模式下即使 TCPing + -dd 也会用它发起地区码获取请求
 	if task.Httping || !task.Disable || task.ForceGetColo {
 		if err := task.ValidateTestURL(task.URL); err != nil {
-			utils.Red.Printf("[错误] %v\n", err)
+			utils.Error("%v", err)
 			os.Exit(1)
 		}
 		if task.PortProtocolMismatch(task.TCPPort, task.URL) {
-			utils.Yellow.Println("[提示] 指定的测速端口 [-tp] 与测速地址协议可能不匹配（TLS 握手将失败），请注意确认。")
+			utils.Tip("指定的测速端口 [-tp] 与测速地址协议可能不匹配（TLS 握手将失败），请注意确认。")
 		}
 	} else if urlSet {
 		// 已禁用下载测速且非 HTTPing 模式时，-url 不会被用到，提醒用户避免误解
-		utils.Yellow.Println("[提示] 使用了 [-dd] 参数，[-url] 指定的测速地址不会被使用。")
+		utils.Tip("使用了 [-dd] 参数，[-url] 指定的测速地址不会被使用。")
 	}
 
 	// -getcolo 参数合理性提醒
 	if task.ForceGetColo {
 		if task.Httping {
-			utils.Yellow.Println("[提示] [-httping] 模式本身已通过响应头获取地区码，[-getcolo] 参数无实际作用。")
+			utils.Tip("[-httping] 模式本身已通过响应头获取地区码，[-getcolo] 参数无实际作用。")
 		} else if task.Disable {
-			utils.Yellow.Println("[提示] 已开启 [-getcolo]：测速结束后将向 [-url] 发起轻量请求以获取地区码。")
+			utils.Tip("已开启 [-getcolo]：测速结束后将向 [-url] 发起轻量请求以获取地区码。")
 		}
 	}
 }
@@ -280,7 +280,7 @@ func init() {
 func handleIPFlags(useIPv6, ipFileSet bool) {
 	if useIPv6 {
 		if ipFileSet {
-			utils.Yellow.Println("[提示] 已同时指定 [-ipv6] 与 [-f]，优先使用 [-f] 指定的 IP 文件。")
+			utils.Tip("已同时指定 [-ipv6] 与 [-f]，优先使用 [-f] 指定的 IP 文件。")
 			return
 		}
 		task.IPFile = "ipv6.txt"
@@ -307,7 +307,7 @@ func main() {
 				return // main 正常结束时 cancel 触发，不是超时，直接退出 goroutine
 			}
 			fmt.Print("\r\x1b[K")
-			utils.Yellow.Println("[信息] 程序运行超时，正在结算结果并退出...")
+			utils.Info("程序运行超时，正在结算结果并退出...")
 			// 置停止标志后，测速各环节（延迟测速循环/下载测速循环）都会尽快收敛，
 			// 主流程会继续走完 ExportCsv + Print，保证已测得的结果不丢失。
 			atomic.StoreInt32(&task.GlobalEarlyStop, 1)
@@ -318,7 +318,7 @@ func main() {
 				watchdog = 2 * time.Minute
 			}
 			time.Sleep(watchdog)
-			fmt.Println("[警告] 结算超时，强制退出（结果可能未完整写入）。")
+			utils.Warn("结算超时，强制退出（结果可能未完整写入）。")
 			os.Exit(0)
 		}()
 	}
