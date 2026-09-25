@@ -64,7 +64,7 @@ func init() {
         支持指定数量：网段=数量 → 2606:4700::/48=1000，对该网段均匀采样最多 1000 个 IP（搭配 -tn 更高效）
     -ipv6
         使用自带的 ipv6.txt 数据文件；等效于 [-f ipv6.txt]（与 -f 同时指定时优先 -f）
-    -url https://download.parallels.com/desktop/v15/15.1.5-47309/ParallelsDesktop-15.1.5-47309.dmg
+    -url https://cf.xiu2.xyz/url
         指定测速地址；延迟测速(HTTPing)/下载测速时使用的地址，默认地址不保证可用性，建议自建；
         需以 http:// 或 https:// 协议前缀开头
     -tp 443
@@ -90,6 +90,10 @@ func init() {
         匹配指定地区；IATA 机场地区码或国家/城市码，英文逗号分隔，仅 HTTPing 模式可用；(默认 所有地区)
     -dd
         禁用下载测速；禁用后测速结果会按延迟排序 (默认按下载速度排序)；(默认 启用)
+    -getcolo
+        强制获取机场三字码；TCPing 模式下结果默认显示 N/A，开启后会对测速结果
+        逐个发起轻量 HEAD 请求（不计入测速结果）补齐地区码，搭配 [-dd] 使用效果最佳；
+        HTTPing 模式无需开启（本身已获取）；地区码仅用于展示，不参与 [-cfcolo] 过滤；(默认 关闭)
     -allip
         测速全部的IP；对 IP 段中的每个 IP (仅支持 IPv4) 进行测速；(默认 每个 /24 段随机测速一个 IP)
         （指定了「网段=数量」的条目不受此参数影响，会按指定数量采样）
@@ -139,7 +143,7 @@ func init() {
 	flag.IntVar(&task.TestCount, "dn", 10, "下载测速数量")
 	flag.IntVar(&downloadTime, "dt", 10, "下载测速时间")
 	flag.IntVar(&task.TCPPort, "tp", 443, "指定测速端口")
-	flag.StringVar(&task.URL, "url", "https://download.parallels.com/desktop/v15/15.1.5-47309/ParallelsDesktop-15.1.5-47309.dmg", "指定测速地址")
+	flag.StringVar(&task.URL, "url", "https://cf.xiu2.xyz/url", "指定测速地址")
 
 	flag.BoolVar(&task.Httping, "httping", false, "切换测速模式")
 	flag.IntVar(&task.HttpingStatusCode, "httping-code", 0, "有效状态代码")
@@ -157,6 +161,7 @@ func init() {
 	flag.StringVar(&utils.Output, "o", "result.csv", "输出结果文件")
 
 	flag.BoolVar(&task.Disable, "dd", false, "禁用下载测速")
+	flag.BoolVar(&task.ForceGetColo, "getcolo", false, "强制获取机场三字码")
 	flag.BoolVar(&task.TestAll, "allip", false, "测速全部 IP")
 	flag.BoolVar(&utils.ShowPort, "sp", false, "显示端口号")
 	flag.BoolVar(&utils.UseZScore, "zs", false, "综合排序模式")
@@ -245,8 +250,9 @@ func init() {
 	}
 
 	// 参数校验（-v 模式无需校验测速参数，已在上方退出）
-	// 地址是否会被使用：HTTPing 模式用于延迟测速；未禁用下载测速时用于下载测速
-	if task.Httping || !task.Disable {
+	// 地址是否会被使用：HTTPing 模式用于延迟测速；未禁用下载测速时用于下载测速；
+	// -getcolo 模式下即使 TCPing + -dd 也会用它发起地区码获取请求
+	if task.Httping || !task.Disable || task.ForceGetColo {
 		if err := task.ValidateTestURL(task.URL); err != nil {
 			utils.Red.Printf("[错误] %v\n", err)
 			os.Exit(1)
@@ -257,6 +263,15 @@ func init() {
 	} else if urlSet {
 		// 已禁用下载测速且非 HTTPing 模式时，-url 不会被用到，提醒用户避免误解
 		utils.Yellow.Println("[提示] 使用了 [-dd] 参数，[-url] 指定的测速地址不会被使用。")
+	}
+
+	// -getcolo 参数合理性提醒
+	if task.ForceGetColo {
+		if task.Httping {
+			utils.Yellow.Println("[提示] [-httping] 模式本身已通过响应头获取地区码，[-getcolo] 参数无实际作用。")
+		} else if task.Disable {
+			utils.Yellow.Println("[提示] 已开启 [-getcolo]：测速结束后将向 [-url] 发起轻量请求以获取地区码。")
+		}
 	}
 }
 
@@ -315,6 +330,8 @@ func main() {
 
 	// 开始延迟测速 + 过滤延迟/丢包
 	pingData := task.NewPing().Run().FilterDelay().FilterLossRate()
+	// 强制获取机场三字码（-getcolo，仅 TCPing 模式生效；TCPing 默认不产生 HTTP 请求，地区码为空）
+	pingData = task.TestGetColo(pingData)
 	// 开始下载测速
 	speedData := task.TestDownloadSpeed(pingData)
 	utils.ExportCsv(speedData) // 输出文件
