@@ -173,7 +173,8 @@ func (p *Ping) tcping(ip *net.IPAddr) (bool, time.Duration) {
 		}
 	}
 	// 合并 SO_LINGER(0) 与已有的 Control（接口绑定），跳过 TIME_WAIT
-	dialer.Control = chainControl(setLingerControl(), dialer.Control)
+	// （IP_BIND_ADDRESS_NO_PORT 仅在显式 bind 源 IP 时生效，其余路径为 no-op）
+	dialer.Control = chainControl(setLingerControl(), setBindAddressNoPortControl(), dialer.Control)
 
 	conn, err := dialer.Dial("tcp", fullAddress)
 	if err != nil {
