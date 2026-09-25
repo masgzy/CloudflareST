@@ -21,8 +21,6 @@
 package task
 
 import (
-	"crypto/tls"
-
 	"io"
 	"net"
 	"net/http"
@@ -47,22 +45,20 @@ var (
 
 // pingReceived pingTotalTime
 func (p *Ping) httping(ip *net.IPAddr) (int, time.Duration, string) {
+	// 注意：这里必须保持与上游一致的「连接复用」语义（issue #1 教训）：
+	// 延迟测速的口径是网络 RTT，而非「TCP+TLS 完整握手耗时」。
+	// 若在此处 DisableKeepAlives / 禁用会话复用，每个 ping 都会重新握手，
+	// 实测延迟会被抬高约 2~3 倍，导致 -tl 过滤误杀大量低 RTT 的 IP。
 	hc := http.Client{
 		Timeout: time.Second * 2,
 		Transport: &http.Transport{
-			DialContext:       getDialContext(ip),
-			DisableKeepAlives: true,  // 每次请求重新建立连接（含 TLS 握手），确保测速准确
-			ForceAttemptHTTP2: false, // 测速场景禁用 HTTP/2 多路复用
-			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify:     false,            // 显式不跳过证书验证
-				MinVersion:             tls.VersionTLS12, // 强制 TLS 1.2+
-				SessionTicketsDisabled: true,             // 禁用 session ticket，每次完整握手
-			},
+			DialContext: getDialContext(ip),
 		},
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse // 阻止重定向
 		},
 	}
+	defer hc.CloseIdleConnections() // 测完单个 IP 后释放空闲连接，避免高并发下连接堆积
 
 	// 先访问一次获得 HTTP 状态码及地区码
 	var colo string
@@ -142,7 +138,9 @@ func (p *Ping) httping(ip *net.IPAddr) (int, time.Duration, string) {
 			continue
 		}
 		request.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/98.0.4758.80 Safari/537.36")
-		// DisableKeepAlives 已自动添加 Connection: close，无需手动设置
+		if i == PingTimes-1 { // 最后一次 ping 主动断开连接，避免残留空闲连接
+			request.Header.Set("Connection", "close")
+		}
 		startTime := time.Now()
 		response, err := hc.Do(request)
 		if err != nil {

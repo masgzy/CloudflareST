@@ -35,8 +35,11 @@ import (
 )
 
 const (
-	bufferSize                     = 256 * 1024 // 256KB，减少高速下载时的 IO 调用次数
-	defaultURL                     = "https://download.parallels.com/desktop/v15/15.1.5-47309/ParallelsDesktop-15.1.5-47309.dmg"
+	bufferSize = 256 * 1024 // 256KB，减少高速下载时的 IO 调用次数
+	// 与上游保持一致的默认测速地址（issue #1 教训）：
+	// Parallels 大文件（700MB）的 HEAD 请求在 CF 边缘需要回源/查元数据，实测响应高达 ~230ms，
+	// 会整体抬高 HTTPing 测量基线，导致 -tl 过滤误杀；cf.xiu2.xyz 由边缘直接应答（实测 ~6ms）。
+	defaultURL                     = "https://cf.xiu2.xyz/url"
 	defaultTimeout                 = 10 * time.Second
 	defaultDisableDownload         = false
 	defaultTestNum                 = 10
@@ -225,7 +228,8 @@ func getDialContext(ip *net.IPAddr) func(ctx context.Context, network, address s
 			}
 		}
 		// 合并 SO_LINGER(0) 与已有的 Control（接口绑定），跳过 TIME_WAIT
-		dialer.Control = chainControl(setLingerControl(), dialer.Control)
+		// （IP_BIND_ADDRESS_NO_PORT 仅在显式 bind 源 IP 时生效，其余路径为 no-op）
+		dialer.Control = chainControl(setLingerControl(), setBindAddressNoPortControl(), dialer.Control)
 		return dialer.DialContext(ctx, network, fakeSourceAddr)
 	}
 }
