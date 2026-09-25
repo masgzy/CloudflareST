@@ -122,39 +122,10 @@ chmod +x cfst
 
 ### 结果示例
 
-测速完毕后，默认会显示**最快的 10 个 IP**，示例（仅为输出内容示例）：
+测速完毕后，默认会显示**最快的 10 个 IP**（下图为真实测速输出，含延迟测速进度条、
+下载测速实时速度与框线结果表格）：
 
-``` bash
-IP 地址           已发送  已接收  丢包率  平均延迟  下载速度(MB/s)  地区码
-104.27.200.69     4      4       0.00   146.23    28.64          LAX
-172.67.60.78      4      4       0.00   139.82    15.02          SEA
-104.25.140.153    4      4       0.00   146.49    14.90          SJC
-104.27.192.65     4      4       0.00   140.28    14.07          LAX
-172.67.62.214     4      4       0.00   139.29    12.71          LAX
-104.27.207.5      4      4       0.00   145.92    11.95          LAX
-172.67.54.193     4      4       0.00   146.71    11.55          LAX
-104.22.66.8       4      4       0.00   147.42    11.11          SEA
-104.27.197.63     4      4       0.00   131.29    10.26          FRA
-172.67.58.91      4      4       0.00   140.19    9.14           SJC
-...
-
-# 如果平均延迟非常低（如 0.xx），则说明 CFST 测速时走了代理，请先关闭代理软件后再测速。
-# 如果在路由器上运行，请先关闭路由器内的代理（或将其排除），否则测速结果可能会不准确/无法使用。
-
-# 因为每次测速都是在每个 IP 段中随机 IP，所以每次的测速结果都不可能相同，这是正常的！
-
-# 注意！我发现电脑开机后第一次测速延迟会明显偏高（手动 TCPing 也一样），后续测速都正常
-# 因此建议大家开机后第一次正式测速前，先随便测几个 IP（无需等待延迟测速完成，只要进度条动了就可以直接关了）
-
-# 软件在 默认参数 下的整个流程大概步骤：
-# 1. 延迟测速（默认 TCPing 模式，HTTPing 模式需要手动加上参数）
-# 2. 延迟排序（延迟 从低到高 排序并按条件过滤，不同丢包率会分开排序，因此可能会有一些延迟低但丢包的 IP 排到后面）
-# 3. 下载测速（从延迟最低的 IP 开始依次下载测速，默认测够 10 个就会停止）
-# 4. 速度排序（速度从高到低排序）
-# 5. 输出结果（通过参数控制是否输出到命令行(-p 0)或输出到文件(-o "")）
-
-# 注意：输出的结果文件 result.csv 通过微软 Excel 表格打开会中文乱码，这是正常的，其他表格软件/记事本都显示正常
-```
+![测速结果示例](docs/result_example.png)
 
 测速结果第一行就是**既下载速度最快、又平均延迟最低的最快 IP**！
 
@@ -172,6 +143,59 @@ IP 地址,已发送,已接收,丢包率,平均延迟,下载速度(MB/s),地区�
 > _大家可以按自己需求，对完整结果**进一步筛选处理**，或者去看一看进阶使用**指定过滤条件**！_
 
 ****
+## \# 测速流程图
+
+**整体流程：**
+
+```mermaid
+flowchart TD
+    A[启动程序] --> B[参数解析与校验<br/>-tll 钳制 / -tp 自动端口 / -url 校验]
+    B --> C[加载 IP 段数据<br/>-f 文件 / -ip 指定 / 网段=数量采样]
+    C --> D[延迟测速<br/>TCPing（默认）或 HTTPing（-httping）]
+    D --> E[过滤平均延迟上下限<br/>-tl / -tll]
+    E --> F[过滤丢包率<br/>-tlr]
+    F --> G{开启 -getcolo<br/>且为 TCPing？}
+    G -- 是 --> H[并发 HEAD 请求<br/>补齐机场三字码]
+    G -- 否 --> I
+    H --> I{-dd 禁用下载测速？}
+    I -- 是 --> J[按延迟排序]
+    I -- 否 --> K[下载测速（前 -dn 个）<br/>-dt 时长 / -sl 速度下限]
+    K --> L[按速度排序<br/>或 -zs 综合排序]
+    J --> M[输出：CSV（-o）+ 终端表格（-p）]
+    L --> M
+```
+
+**单个 IP 的测速时序：**
+
+```mermaid
+sequenceDiagram
+    participant M as 主流程
+    participant W as 测速线程池（-n）
+    participant IP as 目标 IP:443
+    participant U as 测速地址（-url）
+
+    M->>W: 加载 IP 段并启动并发测速
+    loop 每个 IP（默认 4 次）
+        W->>IP: TCP SYN（TCPing）
+        IP-->>W: SYN/ACK（记录 RTT）
+    end
+    Note over W,U: HTTPing 模式改为 HEAD -url<br/>并从响应头解析地区码
+    W->>W: 过滤：-tl / -tll / -tlr
+    alt 开启 -getcolo（仅 TCPing）
+        W->>U: HEAD（直连该 IP，不计入测速）
+        U-->>W: cf-ray → 机场三字码
+    end
+    alt 未指定 -dd
+        loop 前 -dn 个 IP
+            W->>U: GET 下载测速（最长 -dt 秒）
+            U-->>W: 数据流 → 平均速度 + 地区码
+        end
+    end
+    W->>M: 排序 → CSV / 终端表格输出
+```
+
+****
+
 ## \# 进阶使用
 
 直接运行使用的是默认参数，如果想要测速结果更全面、更符合自己的要求，可以自定义参数。
@@ -186,7 +210,7 @@ https://github.com/masgzy/CloudflareST
 
 参数：
     -n 200
-        延迟测速线程；越多延迟测速越快，性能弱的设备 (如路由器) 请勿太高；(默认 200 最多 1000)
+        延迟测速线程；越多延迟测速越快，性能弱的设备 (如路由器) 请勿太高；(默认 200 无上限)
     -t 4
         延迟测速次数；单个 IP 延迟测速的次数；(默认 4 次)
     -tn 0
@@ -197,7 +221,7 @@ https://github.com/masgzy/CloudflareST
         下载测速时间；单个 IP 下载测速最长时间，不能太短；(默认 10 秒)
     -tp 443
         指定测速端口；延迟测速/下载测速时使用的端口；(默认 443 端口)
-    -url https://download.parallels.com/desktop/v15/15.1.5-47309/ParallelsDesktop-15.1.5-47309.dmg
+    -url https://cf.xiu2.xyz/url
         指定测速地址；延迟测速(HTTPing)/下载测速时使用的地址，默认地址不保证可用性，建议自建；
         当下载测速时，软件会从 HTTP 响应头中获取该 IP 当前地区码（支持 Cloudflare、AWS CloudFront、Fastly、Gcore、CDN77、Bunny 等 CDN）并显示出来。
 
@@ -241,6 +265,10 @@ https://github.com/masgzy/CloudflareST
 
     -dd
         禁用下载测速；禁用后测速结果会按延迟排序 (默认按下载速度排序)；(默认 启用)
+    -getcolo
+        强制获取机场三字码；TCPing 模式下结果默认显示 N/A，开启后会对测速结果
+        逐个发起轻量 HEAD 请求（不计入测速结果）补齐地区码，搭配 [-dd] 使用效果最佳；
+        HTTPing 模式无需开启（本身已获取）；地区码仅用于展示，不参与 [-cfcolo] 过滤；(默认 关闭)
     -allip
         测速全部的IP；对 IP 段中的每个 IP (仅支持 IPv4) 进行测速；(默认 每个 /24 段随机测速一个 IP)
     -sp
@@ -990,20 +1018,12 @@ ulimit -n 65535
 
 ## 问题反馈
 
-如果你遇到什么问题，可以先去 [**Issues**](https://github.com/XIU2/CloudflareSpeedTest/issues)、[Discussions](https://github.com/XIU2/CloudflareSpeedTest/discussions) 里看看是否有别人问过了（记得去看下  [**Closed**](https://github.com/XIU2/CloudflareSpeedTest/issues?q=is%3Aissue+is%3Aclosed) 的）。  
-如果没找到类似问题，请新开个 [**Issues**](https://github.com/XIU2/CloudflareSpeedTest/issues/new) 来告诉我！
+如果你遇到什么问题，可以先去本仓库的 [**Issues**](https://github.com/masgzy/CloudflareST/issues) 里看看是否有别人问过了（记得去看下 [**Closed**](https://github.com/masgzy/CloudflareST/issues?q=is%3Aissue+is%3Aclosed) 的）。  
+如果没找到类似问题，请新开个 [**Issues**](https://github.com/masgzy/CloudflareST/issues/new) 来告诉我！  
+（如果是原版 XIU2/CloudflareSpeedTest 的问题，请前往 [上游 Issues](https://github.com/XIU2/CloudflareSpeedTest/issues) 反馈）
 
 > [!NOTE]
 > **注意**！_与 CFST 本身 `反馈问题、功能建议` 无关的，请前往项目内部 论坛 讨论（顶部的 `💬 Discussions`_  
-
-****
-## 关于捐赠
-
-本项目基于开源项目[XIU2/CloudflareSpeedTest]修改，下方二维码为原作者的捐赠渠道，感谢原作者的贡献。
-## 如果帮到你的话就 "打赏" 一下吧~🎉✨
-
-![微信赞赏](https://github.com/XIU2/XIU2/blob/master/img/zs-01.png)![支付宝赞赏](https://github.com/XIU2/XIU2/blob/master/img/zs-02.png)
-
 
 ****
 
