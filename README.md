@@ -233,7 +233,9 @@ https://github.com/masgzy/CloudflareST
     -httping-code 200
         有效状态代码；HTTPing 延迟测速时网页返回的有效 HTTP 状态码，仅限一个；(默认 200 301 302)
     -cfcolo HKG,KHH,NRT,LAX,SEA,SJC,FRA,MAD
-        匹配指定地区；IATA 机场地区码或国家/城市码，英文逗号分隔，大小写均可，仅 HTTPing 模式可用；(默认 所有地区)
+        匹配指定地区；IATA 机场地区码或国家/城市码，英文逗号分隔，大小写均可；(默认 所有地区)
+        HTTPing 模式在延迟测速时直接过滤；TCPing 模式会自动启用 [-getcolo] 获取地区码后过滤
+        （地区码获取失败的 N/A 结果会被移除）
         支持 Cloudflare、AWS CloudFront、Fastly、Gcore、CDN77、Bunny 等 CDN
         其中 Cloudflare、AWS CloudFront、Fastly 使用的是 IATA 三字机场地区码，如：HKG,LAX
         其中 CDN77、Bunny 使用的是 二字国家/区域码，如：US,CN
@@ -268,9 +270,15 @@ https://github.com/masgzy/CloudflareST
     -getcolo
         强制获取机场三字码；TCPing 模式下结果默认显示 N/A，开启后会对测速结果
         逐个发起轻量 HEAD 请求（不计入测速结果）补齐地区码，搭配 [-dd] 使用效果最佳；
-        HTTPing 模式无需开启（本身已获取）；地区码仅用于展示，不参与 [-cfcolo] 过滤；(默认 关闭)
+        获取的地区码会参与 [-cfcolo] 过滤（指定 [-cfcolo] 时无需手动开启本参数）；
+        HTTPing 模式无需开启（本身已获取）；(默认 关闭)
     -allip
         测速全部的IP；对 IP 段中的每个 IP (仅支持 IPv4) 进行测速；(默认 每个 /24 段随机测速一个 IP)
+    -qn 1000
+        总测速 IP 数量；从 IP 段中按此总量尽量均匀采样生成待测 IP（IPv4/IPv6 均支持），
+        数量在各 IP 段间平均分配（受段大小钳制），超过地址总数时测全部；
+        指定了「网段=数量」的条目不受影响；与 [-allip] 同时指定时本参数优先；
+        搭配 [-tn] 提前结束延迟测速效率更高，例如：cfst -qn 2000 -tn 300；(默认 0 按默认规则生成)
     -sp
         显示端口号；在结果中显示测速端口（IP:PORT），默认仅当用户指定端口时显示；(默认 关闭)
     -zs
@@ -465,6 +473,10 @@ cfst -ip 1.1.1.1:443,2.2.2.0/24:8443
 cfst -ip 2606:4700::/48=1000 -tn 300
 cfst -ip 104.16.0.0/24=50,[2606:4700::/32]:443=200
 
+# 或用 -qn 直接指定总测速数量（在所有 IP 段间尽量平均分配，IPv4/IPv6 均支持）
+cfst -qn 2000 -tn 300
+cfst -ipv6 -qn 500 -tn 50
+
 # IP 数据文件（-f）同样支持端口、「网段=数量」写法，以及 # 与 // 开头的注释行；重复的 IP 段会自动去重
 ```
 
@@ -551,7 +563,13 @@ Cloudflare CDN 的节点 IP 是 Anycast IP，即每个 IP 对应的服务器节�
 
 cfst -httping -cfcolo HKG,KHH,NRT,LAX,SEA,SJC,FRA,MAD
 
-# 注意，该参数只有在 HTTPing 延迟测速模式下才可用（因为软件是通过 HTTP 链接中的响应头来获得该 IP 的实际地区码）
+# HTTPing 模式下，软件是在延迟测速时通过 HTTP 响应头获得该 IP 的实际地区码并直接过滤
+
+# v2.3.5-mod-3.4 起 TCPing 模式同样可用：会自动启用 [-getcolo]，
+# 测速结束后对结果逐个发起轻量 HEAD 请求获取地区码（不计入测速结果），再按 -cfcolo 过滤
+# （地区码获取失败的 N/A 结果会被移除；也可以显式指定 -getcolo 开启）
+cfst -cfcolo HKG
+cfst -cfcolo HKG,SJC -getcolo -dd
 
 # 另外，HTTPing 过程中，软件会从 HTTP 响应头中获取该 IP 当前地区码（支持 Cloudflare、AWS CloudFront、Fastly、Gcore、CDN77、Bunny 等 CDN）并显示出来，而 TCPing 过程中无法这样做（但 下载测速 时也会这样做来获取地区码，毕竟下载测速也是个 HTTP 链接）
 ```
