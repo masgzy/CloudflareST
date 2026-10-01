@@ -66,6 +66,14 @@ var (
 	MinSpeed  = defaultMinSpeed
 )
 
+// badStatusCount / lastBadStatusCode 下载测速遇到非 200 响应的统计：
+// 此前非 200 仅在 -debug 模式输出，普通用户只能看到速度 0.00（如测速地址被 CF 防护
+// 403 拦截）无从排查；现统计次数并在测速结束后统一告警
+var (
+	badStatusCount    int32 // 非 200 响应次数
+	lastBadStatusCode int32 // 最近一次非 200 状态码
+)
+
 func checkDownloadDefault() {
 	if URL == "" {
 		URL = defaultURL
@@ -74,9 +82,11 @@ func checkDownloadDefault() {
 		DURL = defaultDownloadURL
 	}
 	if Timeout <= 0 {
+		utils.Tip("下载测速时间 [-dt] 不能小于 1 秒，已重置为默认值 %d 秒。", int(defaultTimeout/time.Second))
 		Timeout = defaultTimeout
 	}
 	if TestCount <= 0 {
+		utils.Tip("下载测速数量 [-dn] 不能小于 1，已重置为默认值 %d。", defaultTestNum)
 		TestCount = defaultTestNum
 	}
 	if MinSpeed <= 0.0 {
@@ -94,6 +104,8 @@ type DownloadProgress struct {
 
 func TestDownloadSpeed(ipSet utils.PingDelaySet) (speedSet utils.DownloadSpeedSet) {
 	checkDownloadDefault()
+	atomic.StoreInt32(&badStatusCount, 0)
+	atomic.StoreInt32(&lastBadStatusCode, 0)
 	if Disable {
 		return utils.DownloadSpeedSet(ipSet)
 	}
@@ -182,6 +194,7 @@ func TestDownloadSpeed(ipSet utils.PingDelaySet) (speedSet utils.DownloadSpeedSe
 	// 检查是否因为全局停止而退出
 	if atomic.LoadInt32(&GlobalEarlyStop) == 1 {
 		bar.Done()
+		warnBadStatusCode(testNum)
 		if len(speedSet) == 0 && len(ipSet) > 0 {
 			// 全局超时等场景下下载测速被整体跳过：
 			// 直接沿用延迟测速结果（保持延迟排序，与 -dd 行为一致），避免已测得的结果被丢弃
@@ -209,6 +222,8 @@ func TestDownloadSpeed(ipSet utils.PingDelaySet) (speedSet utils.DownloadSpeedSe
 
 	bar.Done()
 
+	warnBadStatusCode(testNum)
+
 	if MinSpeed == 0.00 { // 如果没有指定下载速度下限，则直接返回所有测速数据
 		speedSet = utils.DownloadSpeedSet(ipSet)
 	} else if utils.Debug && len(speedSet) == 0 { // 如果指定了下载速度下限，且是调试模式下，且没有找到任何一个满足条件的 IP 时，返回所有测速数据，供用户查看当前的测速结果，以便适当调低预期测速条件
@@ -218,6 +233,18 @@ func TestDownloadSpeed(ipSet utils.PingDelaySet) (speedSet utils.DownloadSpeedSe
 	// 按速度排序
 	speedSet.Sort()
 	return
+}
+
+// warnBadStatusCode 下载测速出现非 200 响应时的统一告警。
+// 测速地址失效（被 CF 防护拦截 403、文件下架 404 等）时，此前只有 -debug 模式能看到
+// 原因，普通用户只看到速度 0.00，极易误判为 CF IP 全部不可用；现测速结束后直接提示
+func warnBadStatusCode(total int) {
+	n := atomic.LoadInt32(&badStatusCount)
+	if n <= 0 {
+		return
+	}
+	utils.Warn("检测到 %d/%d 次下载测速返回 HTTP %d（非 200）：测速地址可能已失效或被防护拦截，"+
+		"若速度结果均为 0，请用 [-durl] 更换下载测速地址。", n, total, atomic.LoadInt32(&lastBadStatusCode))
 }
 
 func getDialContext(ip *net.IPAddr) func(ctx context.Context, network, address string) (net.Conn, error) {
@@ -333,6 +360,9 @@ func downloadHandlerWithProgress(ip *net.IPAddr, progress *DownloadProgress) (fl
 	}
 	defer response.Body.Close()
 	if response.StatusCode != 200 {
+		// 非 200（如被 CF 防护拦截 403、文件下架 404）：此前仅 -debug 可见，现统一统计后告警
+		atomic.AddInt32(&badStatusCount, 1)
+		atomic.StoreInt32(&lastBadStatusCode, int32(response.StatusCode))
 		if utils.Debug { // 调试模式下，输出更多信息
 			printDownloadDebugInfo(ip, nil, response.StatusCode, DURL, lastRedirectURL, response)
 		}

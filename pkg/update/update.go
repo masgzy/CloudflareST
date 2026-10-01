@@ -32,6 +32,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -121,7 +122,9 @@ func CheckUpdate(currentVersion string) (CheckStatus, error) {
 			lastErr = err
 			continue
 		}
-		if v == strings.TrimSpace(currentVersion) {
+		// 逐段数字比较版本方向：仅当远端比本地新时才提示更新，
+		// 修复此前「仅判断字符串不同即提示更新」导致的本地较新却被要求降级的问题
+		if compareVersions(currentVersion, v) >= 0 {
 			return CheckUpToDate, nil
 		}
 		LatestVersion = v
@@ -165,6 +168,78 @@ func isValidVersion(v string) bool {
 		return false
 	}
 	return true
+}
+
+// parseVersionNumbers 提取版本号中的数字序列：v2.3.5-mod-3.5 → [2, 3, 5, 3, 5]。
+// 不以 v 开头或不含数字时返回 false。
+func parseVersionNumbers(v string) ([]int, bool) {
+	v = strings.TrimSpace(v)
+	if len(v) < 2 || v[0] != 'v' {
+		return nil, false
+	}
+	var nums []int
+	for i := 1; i < len(v); {
+		if c := v[i]; c >= '0' && c <= '9' {
+			j := i
+			for j < len(v) && v[j] >= '0' && v[j] <= '9' {
+				j++
+			}
+			n, err := strconv.Atoi(v[i:j])
+			if err != nil {
+				return nil, false
+			}
+			nums = append(nums, n)
+			i = j
+		} else {
+			i++
+		}
+	}
+	if len(nums) == 0 {
+		return nil, false
+	}
+	return nums, true
+}
+
+// compareVersions 比较当前版本与远端版本：-1 远端更新、0 相同、1 本地更新。
+// 逐段数字比较（v2.3.10 > v2.3.9）；较长序列多出的非零段视为更新
+// （v2.3.5-mod-3.5 > v2.3.5）；任一版本无法解析数字时回退为字符串比较
+// （不同即提示更新，与旧行为一致，仅提示不会静默更新）。
+func compareVersions(current, latest string) int {
+	cur := strings.TrimSpace(current)
+	lat := strings.TrimSpace(latest)
+	curNums, okCur := parseVersionNumbers(cur)
+	latNums, okLat := parseVersionNumbers(lat)
+	if !okCur || !okLat {
+		if cur == lat {
+			return 0
+		}
+		return -1
+	}
+	n := len(curNums)
+	if len(latNums) > n {
+		n = len(latNums)
+	}
+	for i := 0; i < n; i++ {
+		var a, b int
+		if i < len(curNums) {
+			a = curNums[i]
+		}
+		if i < len(latNums) {
+			b = latNums[i]
+		}
+		if a != b {
+			if a < b {
+				return -1
+			}
+			return 1
+		}
+	}
+	// 数字序列相同但文本不同（如 -beta 与 -rc 等无法数字化区分的后缀）：
+	// 保持旧行为提示更新（仅提示，不会静默更新）
+	if cur != lat {
+		return -1
+	}
+	return 0
 }
 
 // HasUpdate 当前是否检测到新版本

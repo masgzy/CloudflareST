@@ -300,7 +300,8 @@ https://github.com/masgzy/CloudflareST
         例如：HTTPing 延迟测速过程中，因为 HTTP 状态码不符合或测速地址有问题或超时等原因而终止测速
         例如：下载测速过程中，因为下载测速地址有问题（被阻断、403状态码、超时）等原因而终止测速（导致显示 0.00）
     -v
-        打印程序版本 + 检查版本更新；发现新版本时询问 Y/n，确认后自动从
+        打印程序版本 + 检查版本更新；仅当远端版本比当前新时才提示更新（避免本地较新被要求降级），
+        发现新版本时询问 Y/n，确认后自动从
         https://github.com/masgzy/CloudflareST/releases/latest/download/cfst_系统_架构.<ext>
         下载并替换当前二进制（Windows 走 .new + 脚本完成覆盖并自动重启）
     -h

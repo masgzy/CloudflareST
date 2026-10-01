@@ -85,13 +85,17 @@ type Ping struct {
 }
 
 func checkPingDefault() {
+	// 默认值均合法，进入重置分支必然是用户显式传了越界值，重置前先提示（不再静默重置）
 	if Routines <= 0 {
+		utils.Tip("延迟测速线程 [-n] 不能小于 1，已重置为默认值 %d。", defaultRoutines)
 		Routines = defaultRoutines
 	}
 	if TCPPort <= 0 || TCPPort > 65535 {
+		utils.Tip("测速端口 [-tp] 超出有效范围 1~65535，已重置为默认端口 %d。", defaultPort)
 		TCPPort = defaultPort
 	}
 	if PingTimes <= 0 {
+		utils.Tip("延迟测速次数 [-t] 不能小于 1，已重置为默认值 %d。", defaultPingTimes)
 		PingTimes = defaultPingTimes
 	}
 }
