@@ -34,12 +34,22 @@ import (
 	"github.com/VividCortex/ewma"
 )
 
+// DefaultURL 延迟测速默认地址（-url）：HTTPing 延迟测速与 -getcolo 获取地区码使用。
+// cf.xiu2.xyz 由 CF 边缘直接应答（实测 ~6ms），适合高频小请求；
+// issue #1 教训：大文件站点（如 Parallels）的 HEAD 请求在 CF 边缘需回源/查元数据，
+// 实测响应高达 ~230ms，会整体抬高 HTTPing 测量基线，导致 -tl 过滤误杀。
+const DefaultURL = "https://cf.xiu2.xyz/url"
+
+// DefaultDownloadURL 下载测速默认地址（-durl）：Parallels 官方 200.9MB 安装包。
+// 选择理由：download.parallels.com 托管于 Cloudflare（A 记录 104.18.170/171.3），
+// CF IP 测速原理要求 Host 为 CF 托管域名；商业公司大文件稳定、带宽充足、支持 Range，
+// 适合下载测速的持续大流量场景（延迟测速请勿使用大文件地址，见 DefaultURL 注释）。
+const DefaultDownloadURL = "https://download.parallels.com/desktop/v15/15.1.5-47309/ParallelsDesktop-15.1.5-47309.dmg"
+
 const (
-	bufferSize = 256 * 1024 // 256KB，减少高速下载时的 IO 调用次数
-	// 与上游保持一致的默认测速地址（issue #1 教训）：
-	// Parallels 大文件（700MB）的 HEAD 请求在 CF 边缘需要回源/查元数据，实测响应高达 ~230ms，
-	// 会整体抬高 HTTPing 测量基线，导致 -tl 过滤误杀；cf.xiu2.xyz 由边缘直接应答（实测 ~6ms）。
-	defaultURL                     = "https://cf.xiu2.xyz/url"
+	bufferSize                     = 256 * 1024 // 256KB，减少高速下载时的 IO 调用次数
+	defaultURL                     = DefaultURL
+	defaultDownloadURL             = DefaultDownloadURL
 	defaultTimeout                 = 10 * time.Second
 	defaultDisableDownload         = false
 	defaultTestNum                 = 10
@@ -47,7 +57,8 @@ const (
 )
 
 var (
-	URL     = defaultURL
+	URL     = defaultURL         // 延迟测速地址（HTTPing 延迟测速 / -getcolo 获取地区码）
+	DURL    = defaultDownloadURL // 下载测速地址（与 URL 相互独立）
 	Timeout = defaultTimeout
 	Disable = defaultDisableDownload
 
@@ -58,6 +69,9 @@ var (
 func checkDownloadDefault() {
 	if URL == "" {
 		URL = defaultURL
+	}
+	if DURL == "" {
+		DURL = defaultDownloadURL
 	}
 	if Timeout <= 0 {
 		Timeout = defaultTimeout
@@ -291,17 +305,17 @@ func downloadHandlerWithProgress(ip *net.IPAddr, progress *DownloadProgress) (fl
 				}
 				return http.ErrUseLastResponse
 			}
-			if req.Header.Get("Referer") == defaultURL { // 当使用默认下载测速地址时，重定向不携带 Referer
+			if req.Header.Get("Referer") == defaultDownloadURL { // 当使用默认下载测速地址时，重定向不携带 Referer
 				req.Header.Del("Referer")
 			}
 			return nil
 		},
 	}
 	defer client.CloseIdleConnections()
-	req, err := http.NewRequest("GET", URL, nil)
+	req, err := http.NewRequest("GET", DURL, nil)
 	if err != nil {
 		if utils.Debug { // 调试模式下，输出更多信息
-			utils.Debugf("IP: %s, 下载测速请求创建失败，错误信息: %v, 下载测速地址: %s", ip.String(), err, URL)
+			utils.Debugf("IP: %s, 下载测速请求创建失败，错误信息: %v, 下载测速地址: %s", ip.String(), err, DURL)
 		}
 		atomic.StoreInt64(&progress.currentSpeed, 0)
 		return 0.0, ""
@@ -312,7 +326,7 @@ func downloadHandlerWithProgress(ip *net.IPAddr, progress *DownloadProgress) (fl
 	response, err := client.Do(req)
 	if err != nil {
 		if utils.Debug { // 调试模式下，输出更多信息
-			printDownloadDebugInfo(ip, err, 0, URL, lastRedirectURL, response)
+			printDownloadDebugInfo(ip, err, 0, DURL, lastRedirectURL, response)
 		}
 		atomic.StoreInt64(&progress.currentSpeed, 0)
 		return 0.0, ""
@@ -320,7 +334,7 @@ func downloadHandlerWithProgress(ip *net.IPAddr, progress *DownloadProgress) (fl
 	defer response.Body.Close()
 	if response.StatusCode != 200 {
 		if utils.Debug { // 调试模式下，输出更多信息
-			printDownloadDebugInfo(ip, nil, response.StatusCode, URL, lastRedirectURL, response)
+			printDownloadDebugInfo(ip, nil, response.StatusCode, DURL, lastRedirectURL, response)
 		}
 		atomic.StoreInt64(&progress.currentSpeed, 0)
 		return 0.0, ""

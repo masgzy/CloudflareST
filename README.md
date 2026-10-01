@@ -149,7 +149,7 @@ IP 地址,已发送,已接收,丢包率,平均延迟,下载速度(MB/s),地区�
 
 ```mermaid
 flowchart TD
-    A[启动程序] --> B[参数解析与校验<br/>-tll 钳制 / -tp 自动端口 / -url 校验]
+    A[启动程序] --> B[参数解析与校验<br/>-tll 钳制 / -tp 自动端口 / -url / -durl 校验]
     B --> C[加载 IP 段数据<br/>-f 文件 / -ip 指定 / 网段=数量采样]
     C --> D[延迟测速<br/>TCPing（默认）或 HTTPing（-httping）]
     D --> E[过滤平均延迟上下限<br/>-tl / -tll]
@@ -172,7 +172,8 @@ sequenceDiagram
     participant M as 主流程
     participant W as 测速线程池（-n）
     participant IP as 目标 IP:443
-    participant U as 测速地址（-url）
+    participant U as 延迟测速地址（-url）
+    participant D as 下载测速地址（-durl）
 
     M->>W: 加载 IP 段并启动并发测速
     loop 每个 IP（默认 4 次）
@@ -187,8 +188,8 @@ sequenceDiagram
     end
     alt 未指定 -dd
         loop 前 -dn 个 IP
-            W->>U: GET 下载测速（最长 -dt 秒）
-            U-->>W: 数据流 → 平均速度 + 地区码
+            W->>D: GET 下载测速（最长 -dt 秒）
+            D-->>W: 数据流 → 平均速度 + 地区码
         end
     end
     W->>M: 排序 → CSV / 终端表格输出
@@ -222,8 +223,12 @@ https://github.com/masgzy/CloudflareST
     -tp 443
         指定测速端口；延迟测速/下载测速时使用的端口；(默认 443 端口)
     -url https://cf.xiu2.xyz/url
-        指定测速地址；延迟测速(HTTPing)/下载测速时使用的地址，默认地址不保证可用性，建议自建；
-        当下载测速时，软件会从 HTTP 响应头中获取该 IP 当前地区码（支持 Cloudflare、AWS CloudFront、Fastly、Gcore、CDN77、Bunny 等 CDN）并显示出来。
+        指定延迟测速地址；HTTPing 延迟测速与 [-getcolo] 获取地区码时使用的地址（需 CF 托管域名），
+        默认地址由 CF 边缘直接应答、响应快，适合高频小请求，建议自建；下载测速地址已分离，请使用 [-durl]。
+    -durl https://download.parallels.com/desktop/v15/15.1.5-47309/ParallelsDesktop-15.1.5-47309.dmg
+        指定下载测速地址；需为 CF 托管的可直接下载大文件（默认 Parallels 官方 200.9MB 安装包，
+        商业公司稳定、带宽充足）；
+        下载测速时，软件会从 HTTP 响应头中获取该 IP 当前地区码（支持 Cloudflare、AWS CloudFront、Fastly、Gcore、CDN77、Bunny 等 CDN）并显示出来。
 
     -httping
         切换测速模式；延迟测速模式改为 HTTP 协议，所用测试地址为 [-url] 参数；(默认 TCPing)
@@ -519,7 +524,8 @@ cfst -httping -url https://cf.xiu2.xyz/url
 # 如果你要 HTTPing 测试其他网站/CDN，那么指定一个该网站/使用该 CDN 的地址（因为软件默认地址是 Cloudflare 的，只能用于测试 Cloudflare 的 IP）
 
 # 注意：如果测速地址为 HTTP 协议，记得加上 -tp 80（这个参数会影响 延迟测速/下载测速 时使用的端口）
-# 同理，如果要测速 80 端口，那么也需要加上 -url 参数来指定一个 http:// 协议的地址才行（且该地址不会强制重定向至 HTTPS），如果是非 80 443 端口，那么需要确定该下载测速地址是否支持通过该端口访问。
+# 同理，如果要测速 80 端口，HTTPing 模式需要加上 -url 参数指定一个 http:// 协议的地址（且该地址不会强制重定向至 HTTPS），
+# 下载测速需要加上 -durl 参数指定一个 http:// 协议的大文件地址；如果是非 80 443 端口，需要确定该测速地址是否支持通过该端口访问。
 cfst -httping -tp 80 -url http://cdn.cloudflare.steamstatic.com/steam/apps/5952/movie_max.webm
 ```
 

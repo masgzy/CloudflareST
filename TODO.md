@@ -18,6 +18,14 @@
   - 实现于 `task/bindaddr_linux.go`（`//go:build linux`）：仅 IPv4 生效、IPv6 自动跳过、
     旧内核（<4.16）setsockopt 报错静默忽略；未绑定源 IP 的路径为 no-op
 
+- [x] **延迟测速与下载测速地址分离（`-url` / `-durl`）**（v2.3.5-mod-3.5 完成）
+  - `-url` 仅用于 HTTPing 延迟测速与 `-getcolo` 获取地区码（默认 cf.xiu2.xyz/url，CF 边缘快响应，
+    修复 issue #1 中大文件地址 HEAD 高基线抬高 HTTPing 测量值的场景）
+  - 新增 `-durl` 下载测速地址（默认 Parallels 官方 200.9MB 安装包，download.parallels.com 托管于 CF
+    —— A 记录 104.18.170/171.3，商业公司大文件稳定，下载响应同样携带 cf-ray 地区码）
+  - 解决默认地址被 CF bot 防护 403 拦截时下载测速全 0 的痛点（延迟与下载地址解耦后可分别替换）
+  - 老用户兼容：仅指定 `-url` 时提示地址已分离；`-dd` 与 `-durl`、TCPing 与 `-url` 均有使用场景提醒
+
 - [x] **总测速 IP 数量参数（`-qn`）+ `-getcolo` 参与 `-cfcolo` 过滤**（v2.3.5-mod-3.4 完成）
   - `-qn N`：从 IP 段按总量尽量均匀采样生成待测 IP（IPv4/IPv6 均支持，配额受段容量钳制、
     超量自动测全部），「网段=数量」条目不受影响，与 `-allip` 冲突时 `-qn` 优先；

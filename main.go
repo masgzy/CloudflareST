@@ -65,8 +65,12 @@ func init() {
     -ipv6
         使用自带的 ipv6.txt 数据文件；等效于 [-f ipv6.txt]（与 -f 同时指定时优先 -f）
     -url https://cf.xiu2.xyz/url
-        指定测速地址；延迟测速(HTTPing)/下载测速时使用的地址，默认地址不保证可用性，建议自建；
-        需以 http:// 或 https:// 协议前缀开头
+        指定延迟测速地址；HTTPing 延迟测速与 [-getcolo] 获取地区码时使用的地址（需 CF 托管域名），
+        默认地址由 CF 边缘直接应答、响应快，适合高频小请求，建议自建；
+        需以 http:// 或 https:// 协议前缀开头；下载测速地址已分离，请使用 [-durl]
+    -durl https://download.parallels.com/.../ParallelsDesktop-15.1.5-47309.dmg
+        指定下载测速地址；需为 CF 托管的可直接下载大文件（默认 Parallels 官方 200.9MB 安装包，
+        商业公司稳定、带宽充足）；需以 http:// 或 https:// 协议前缀开头
     -tp 443
         指定测速端口；延迟测速/下载测速时使用的端口；(默认 443 端口)
         -httping 模式下若未显式指定 -tp，会按测速地址协议自动选择（http → 80、https → 443）
@@ -151,7 +155,8 @@ func init() {
 	flag.IntVar(&task.TestCount, "dn", 10, "下载测速数量")
 	flag.IntVar(&downloadTime, "dt", 10, "下载测速时间")
 	flag.IntVar(&task.TCPPort, "tp", 443, "指定测速端口")
-	flag.StringVar(&task.URL, "url", "https://cf.xiu2.xyz/url", "指定测速地址")
+	flag.StringVar(&task.URL, "url", task.DefaultURL, "指定延迟测速地址（HTTPing/getcolo）")
+	flag.StringVar(&task.DURL, "durl", task.DefaultDownloadURL, "指定下载测速地址")
 
 	flag.BoolVar(&task.Httping, "httping", false, "切换测速模式")
 	flag.IntVar(&task.HttpingStatusCode, "httping-code", 0, "有效状态代码")
@@ -185,8 +190,8 @@ func init() {
 	flag.Usage = func() { fmt.Print(strings.ReplaceAll(help, "\\x1b", "\x1b")) }
 	flag.Parse()
 
-	// 检测哪些参数被显式指定（用于 -ipv6 优先级、-tp 自动端口、-dd 与 -url 冲突提醒）
-	ipFileSet, tpSet, urlSet := false, false, false
+	// 检测哪些参数被显式指定（用于 -ipv6 优先级、-tp 自动端口、-url/-durl 使用场景提醒）
+	ipFileSet, tpSet, urlSet, durlSet := false, false, false, false
 	flag.Visit(func(f *flag.Flag) {
 		switch f.Name {
 		case "f":
@@ -195,6 +200,8 @@ func init() {
 			tpSet = true
 		case "url":
 			urlSet = true
+		case "durl":
+			durlSet = true
 		}
 	})
 	handleIPFlags(useIPv6, ipFileSet)
@@ -276,19 +283,36 @@ func init() {
 	}
 
 	// 参数校验（-v 模式无需校验测速参数，已在上方退出）
-	// 地址是否会被使用：HTTPing 模式用于延迟测速；未禁用下载测速时用于下载测速；
-	// -getcolo 模式下即使 TCPing + -dd 也会用它发起地区码获取请求
-	if task.Httping || !task.Disable || task.ForceGetColo {
+	// 两个测速地址相互独立：
+	//   -url  使用场景：HTTPing 延迟测速、-getcolo 获取地区码
+	//   -durl 使用场景：下载测速（未 -dd 时）
+	if task.Httping || task.ForceGetColo {
 		if err := task.ValidateTestURL(task.URL); err != nil {
 			utils.Error("%v", err)
 			os.Exit(1)
 		}
 		if task.PortProtocolMismatch(task.TCPPort, task.URL) {
-			utils.Tip("指定的测速端口 [-tp] 与测速地址协议可能不匹配（TLS 握手将失败），请注意确认。")
+			utils.Tip("指定的测速端口 [-tp] 与延迟测速地址 [-url] 协议可能不匹配（TLS 握手将失败），请注意确认。")
 		}
 	} else if urlSet {
-		// 已禁用下载测速且非 HTTPing 模式时，-url 不会被用到，提醒用户避免误解
-		utils.Tip("使用了 [-dd] 参数，[-url] 指定的测速地址不会被使用。")
+		// TCPing 且未开 -getcolo 时延迟测速不发 HTTP 请求，-url 不会被用到
+		utils.Tip("未开启 [-httping]/[-getcolo]，[-url] 指定的延迟测速地址不会被使用（下载测速使用 [-durl]）。")
+	}
+	if !task.Disable {
+		if err := task.ValidateTestURL(task.DURL); err != nil {
+			utils.Error("%v", err)
+			os.Exit(1)
+		}
+		if task.PortProtocolMismatch(task.TCPPort, task.DURL) {
+			utils.Tip("指定的测速端口 [-tp] 与下载测速地址 [-durl] 协议可能不匹配（TLS 握手将失败），请注意确认。")
+		}
+	} else if durlSet {
+		// 已禁用下载测速时 -durl 不会被用到，提醒用户避免误解
+		utils.Tip("使用了 [-dd] 参数，[-durl] 指定的下载测速地址不会被使用。")
+	}
+	// 兼容提示：旧版本 -url 同时控制延迟与下载测速，分离后避免老用户误以为改 -url 即改下载地址
+	if urlSet && !durlSet && !task.Disable {
+		utils.Tip("测速地址已分离：[-url] 仅用于 [-httping] 延迟测速/[-getcolo]，下载测速使用 [-durl]（默认 Parallels 大文件）。")
 	}
 
 	// -getcolo 参数合理性提醒
