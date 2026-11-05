@@ -260,13 +260,20 @@ func init() {
 		case update.CheckUpToDate:
 			utils.Green.Println("当前为最新版本 [" + version + "]！")
 		case update.CheckHasUpdate:
-			utils.Yellow.Printf("*** 发现新版本 [%s]！是否立即更新？[Y/n] ***\n", update.LatestVersion)
+			utils.Yellow.Printf("*** 发现新版本 [%s]！输入 y 确认更新，直接回车跳过 ***\n", update.LatestVersion)
 			reader := bufio.NewReader(os.Stdin)
 			ans, _ := reader.ReadString('\n')
 			ans = strings.TrimSpace(strings.ToLower(ans))
-			if ans != "" && ans != "y" && ans != "yes" {
+			// 安全默认：直接回车（空输入）= 不更新，必须显式输入 y/yes 才执行（mod-3.6 起）
+			if ans != "y" && ans != "yes" {
 				fmt.Println("已跳过更新。")
 				os.Exit(0)
+			}
+			// 下载信道透明披露：让用户在确认前知道更新包经谁的手
+			if p := update.ProxyPrefix(); p != "" {
+				utils.Tip("更新包将经加速代理 %s 下载，完整性通过直连 GitHub 获取的 SHA256SUMS 独立校验（不匹配即中止）。", p)
+			} else {
+				utils.Tip("更新包将直连 GitHub 下载，并通过 SHA256SUMS 校验完整性。")
 			}
 			if err := update.PerformUpdate(context.Background()); err != nil {
 				utils.Error("更新失败: %v", err)

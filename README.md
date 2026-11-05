@@ -60,13 +60,16 @@ mkdir cfst
 cd cfst
 
 # 下载 CFST 压缩包（自行根据需求替换 URL 中 [版本号] 和 [文件名]）
-wget -N https://github.com/masgzy/CloudflareST/releases/download/latest/cfst_linux_amd64.tar.gz
+wget -N https://github.com/masgzy/CloudflareST/releases/latest/download/cfst_linux_amd64.tar.gz
+# 校验压缩包完整性（推荐：SHA256SUMS.txt 由 CI 自动生成并随 Release 发布）
+wget -N https://github.com/masgzy/CloudflareST/releases/latest/download/SHA256SUMS.txt
+sha256sum -c --ignore-missing SHA256SUMS.txt
 # 如果你是在国内网络环境中下载，那么请使用下面这几个镜像加速之一：
-# wget -N https://wget.la/https://github.com/masgzy/CloudflareST/releases/download/latest/cfst_linux_amd64.tar.gz
-# wget -N https://ghfast.top/https://github.com/masgzy/CloudflareST/releases/download/latest/cfst_linux_amd64.tar.gz
-# wget -N https://ghproxy.it/https://github.com/masgzy/CloudflareST/releases/download/latest/cfst_linux_amd64.tar.gz
-# wget -N https://gh-proxy.org/https://github.com/masgzy/CloudflareST/releases/download/latest/cfst_linux_amd64.tar.gz
-# wget -N https://cdn.gh-proxy.org/https://github.com/masgzy/CloudflareST/releases/download/latest/cfst_linux_amd64.tar.gz
+# wget -N https://wget.la/https://github.com/masgzy/CloudflareST/releases/latest/download/cfst_linux_amd64.tar.gz
+# wget -N https://ghfast.top/https://github.com/masgzy/CloudflareST/releases/latest/download/cfst_linux_amd64.tar.gz
+# wget -N https://ghproxy.it/https://github.com/masgzy/CloudflareST/releases/latest/download/cfst_linux_amd64.tar.gz
+# wget -N https://gh-proxy.org/https://github.com/masgzy/CloudflareST/releases/latest/download/cfst_linux_amd64.tar.gz
+# wget -N https://cdn.gh-proxy.org/https://github.com/masgzy/CloudflareST/releases/latest/download/cfst_linux_amd64.tar.gz
 # 如果下载失败的话，尝试删除 -N 参数（如果是为了更新，则记得提前删除旧压缩包 rm cfst_linux_amd64.tar.gz ）
 
 # 解压（不需要删除旧文件，会直接覆盖，自行根据需求替换 文件名）

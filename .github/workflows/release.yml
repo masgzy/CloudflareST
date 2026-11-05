@@ -327,6 +327,13 @@ jobs:
           echo "=== 发行版文件列表 ==="
           ls -la release_assets/
 
+      - name: 生成 SHA256SUMS 校验和文件
+        run: |
+          cd release_assets
+          sha256sum *.zip *.tar.gz | sort -k2 > SHA256SUMS.txt
+          echo "=== SHA256SUMS.txt ==="
+          cat SHA256SUMS.txt
+
       - name: 创建发行版
         uses: softprops/action-gh-release@v3
         with:

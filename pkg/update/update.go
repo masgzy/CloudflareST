@@ -25,6 +25,8 @@ import (
 	"bufio"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -37,6 +39,8 @@ import (
 	"time"
 
 	"github.com/masgzy/CloudflareST/pkg/platform"
+
+	"github.com/masgzy/CloudflareST/utils"
 )
 
 // GitHubProxy GitHub 代理默认前缀。
@@ -75,11 +79,28 @@ func resolveURL(raw string) string {
 	return prefix + raw
 }
 
+// ProxyPrefix 返回当前生效的加速代理前缀；直连模式返回空串。
+// 用于更新确认前向用户透明披露下载信道。
+func ProxyPrefix() string {
+	raw := "https://github.com/masgzy/CloudflareST/"
+	proxied := resolveURL(raw)
+	if proxied == raw {
+		return ""
+	}
+	// resolveURL 返回 prefix+raw，剥掉尾部 raw 即得纯前缀（再去掉结尾斜杠）
+	return strings.TrimSuffix(proxied[:len(proxied)-len(raw)], "/")
+}
+
 // LatestVersion 远端 version.txt 的内容（去除空白）
 var LatestVersion string
 
 // versionAPIURL 远端版本号地址（GitHub raw 直连地址）
 const versionAPIURL = "https://github.com/masgzy/CloudflareST/raw/main/version.txt"
+
+// checksumsURL Release 校验和文件（SHA256SUMS.txt）的 GitHub 直连地址。
+// 刻意不走加速代理：校验和必须经独立信道获取，
+// 否则代理一旦作恶可同时替换安装包与校验和，校验形同虚设。
+const checksumsURL = "https://github.com/masgzy/CloudflareST/releases/latest/download/SHA256SUMS.txt"
 
 // CheckStatus 版本检查结果状态
 //
@@ -247,12 +268,116 @@ func HasUpdate() bool {
 	return LatestVersion != ""
 }
 
+// insecureUpdateEnabled 用户是否显式要求跳过校验和验证（逃生门，不推荐）。
+// 仅建议在直连 GitHub 完全不可用、且接受第三方代理信道风险时使用。
+func insecureUpdateEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("CFST_UPDATE_INSECURE"))) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	return false
+}
+
+// fileSHA256 计算文件 SHA256，返回小写十六进制摘要。
+func fileSHA256(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// parseChecksumLine 解析 sha256sum 格式的一行："<64位十六进制>  <文件名>"。
+func parseChecksumLine(line string) (hash, name string, ok bool) {
+	fields := strings.Fields(line)
+	if len(fields) != 2 {
+		return "", "", false
+	}
+	hash, name = fields[0], fields[1]
+	if len(hash) != 64 {
+		return "", "", false
+	}
+	if _, err := hex.DecodeString(hash); err != nil {
+		return "", "", false
+	}
+	return hash, name, true
+}
+
+// lookupChecksum 在 SHA256SUMS 内容中查找目标资产的期望哈希（文件名精确匹配）。
+func lookupChecksum(content, asset string) (string, error) {
+	for _, line := range strings.Split(content, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		hash, name, ok := parseChecksumLine(line)
+		if !ok {
+			continue
+		}
+		if name == asset {
+			return hash, nil
+		}
+	}
+	return "", fmt.Errorf("SHA256SUMS 中未找到 %s 的校验和记录", asset)
+}
+
+// fetchChecksums 直连 GitHub 下载 SHA256SUMS.txt，解析出目标资产的期望哈希。
+// 不提供"经代理拉校验和"的回退：那等于让同一中间人同时伪造两端，假校验比不校验更危险。
+func fetchChecksums(client *http.Client, asset string) (string, error) {
+	res, err := client.Get(checksumsURL)
+	if err != nil {
+		return "", fmt.Errorf("直连 GitHub 获取 SHA256SUMS 失败: %w", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("获取 SHA256SUMS 失败: HTTP %d", res.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(res.Body, 64*1024))
+	if err != nil {
+		return "", fmt.Errorf("读取 SHA256SUMS 失败: %w", err)
+	}
+	return lookupChecksum(string(body), asset)
+}
+
+// verifyChecksum 对已下载的更新包做 SHA256 强校验：
+//   - 默认强制校验；校验和文件直连 GitHub 独立获取（与安装包的代理信道互斥）；
+//   - 校验和缺失、拉取失败或哈希不匹配一律报错中止，绝不覆盖本地程序；
+//   - CFST_UPDATE_INSECURE=1 可显式跳过（会打印醒目警告，不推荐）。
+func verifyChecksum(archivePath, asset string) error {
+	if insecureUpdateEnabled() {
+		utils.Warn("已按 CFST_UPDATE_INSECURE=1 跳过更新包校验和验证：更新包经第三方代理下载且未经校验，存在被篡改风险！")
+		return nil
+	}
+	client := &http.Client{Timeout: 15 * time.Second}
+	expected, err := fetchChecksums(client, asset)
+	if err != nil {
+		return fmt.Errorf("无法校验更新包完整性，已中止更新（%v）。"+
+			"可手动前往 https://github.com/masgzy/CloudflareST/releases/latest 下载，"+
+			"或确认能直连 GitHub 后重试；确要跳过校验请设置环境变量 CFST_UPDATE_INSECURE=1", err)
+	}
+	actual, err := fileSHA256(archivePath)
+	if err != nil {
+		return fmt.Errorf("计算更新包 SHA256 失败: %w", err)
+	}
+	if !strings.EqualFold(actual, expected) {
+		return fmt.Errorf("更新包校验和不匹配！期望 %s，实际 %s，下载可能被篡改或损坏，已中止更新", expected, actual)
+	}
+	fmt.Println("更新包校验和验证通过 (SHA256 OK)。")
+	return nil
+}
+
 // PerformUpdate 执行更新流程：
 //  1. 拼出下载 URL（基于当前 runtime 平台/架构）
 //  2. 通过 GitHubProxy 代理下载到临时目录
-//  3. 解压
-//  4. POSIX 平台直接覆盖当前二进制；Windows 写 .new 并通过外部脚本完成替换
-//  5. 成功返回 nil；中途任何错误返回详细原因
+//  3. 直连 GitHub 拉取 SHA256SUMS 独立校验更新包完整性（不匹配即中止，见 verifyChecksum）
+//  4. 解压
+//  5. POSIX 平台直接覆盖当前二进制；Windows 写 .new 并通过外部脚本完成替换
+//  6. 成功返回 nil；中途任何错误返回详细原因
 func PerformUpdate(ctx context.Context) error {
 	asset, err := platform.AssetName()
 	if err != nil {
@@ -272,9 +397,13 @@ func PerformUpdate(ctx context.Context) error {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	archivePath := filepath.Join(tmpDir, asset+"."+platform.Ext(runtime.GOOS))
+	archiveName := asset + "." + platform.Ext(runtime.GOOS)
+	archivePath := filepath.Join(tmpDir, archiveName)
 	if err := downloadFile(ctx, downloadURL, archivePath); err != nil {
 		return fmt.Errorf("下载失败: %w", err)
+	}
+	if err := verifyChecksum(archivePath, archiveName); err != nil {
+		return err
 	}
 	fmt.Println("下载完成，正在解压...")
 
