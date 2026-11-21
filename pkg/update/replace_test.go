@@ -89,3 +89,47 @@ func TestReplaceBinarySuccess(t *testing.T) {
 		t.Fatal("成功路径不应残留 .new 文件")
 	}
 }
+
+// S-2：世界可写目录判定（/tmp 1777 应判定为可写；普通 0755 目录不判定）
+func TestIsWorldWritableDir(t *testing.T) {
+	if !isWorldWritableDir("/tmp") {
+		t.Error("/tmp (1777) 应判定为世界可写")
+	}
+	if isWorldWritableDir(t.TempDir()) {
+		t.Error("临时测试目录 (0700) 不应判定为世界可写")
+	}
+	if isWorldWritableDir("/nonexistent-dir-cfst") {
+		t.Error("不存在的目录不应判定为世界可写")
+	}
+}
+
+// S-1：更新审计日志追加写入（含版本/信道/校验方式字段）
+func TestAppendUpdateLog(t *testing.T) {
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "cfst")
+	lastVerifyMode = "sha256"
+	// 自定义代理信道（环境变量优先于默认常量）
+	os.Setenv("CFST_GITHUB_PROXY", "https://gh.example.com/")
+	defer os.Unsetenv("CFST_GITHUB_PROXY")
+	appendUpdateLog(exe, "v2.3.5-mod-3.6", "v2.3.5-mod-3.7")
+	b, err := os.ReadFile(filepath.Join(dir, "cfst_update.log"))
+	if err != nil {
+		t.Fatalf("审计日志未生成: %v", err)
+	}
+	line := string(b)
+	for _, want := range []string{"v2.3.5-mod-3.6 -> v2.3.5-mod-3.7", "proxy:https://gh.example.com", "sha256"} {
+		if !strings.Contains(line, want) {
+			t.Errorf("审计日志缺少字段 %q，实际: %q", want, line)
+		}
+	}
+	// 直连模式（off 哨兵）追加第二条
+	os.Setenv("CFST_GITHUB_PROXY", "off")
+	appendUpdateLog(exe, "v2.3.5-mod-3.6", "v2.3.5-mod-3.7")
+	b, _ = os.ReadFile(filepath.Join(dir, "cfst_update.log"))
+	if n := strings.Count(string(b), "\n"); n != 2 {
+		t.Errorf("期望 2 条记录，实际 %d", n)
+	}
+	if !strings.Contains(string(b), "direct") {
+		t.Error("第二条记录应为 direct 信道")
+	}
+}
