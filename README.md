@@ -230,7 +230,8 @@ https://github.com/masgzy/CloudflareST
         默认地址由 CF 边缘直接应答、响应快，适合高频小请求，建议自建；下载测速地址已分离，请使用 [-durl]。
     -durl https://download.parallels.com/desktop/v15/15.1.5-47309/ParallelsDesktop-15.1.5-47309.dmg
         指定下载测速地址；需为 CF 托管的可直接下载大文件（默认 Parallels 官方 200.9MB 安装包，
-        商业公司稳定、带宽充足）；
+        商业公司稳定、带宽充足）；若测速结束提示 HTTP 403/404 告警或速度全为 0，
+        说明该地址对您当前网络环境不可用（部分边缘节点/出口会被防护规则拦截），请更换地址；
         下载测速时，软件会从 HTTP 响应头中获取该 IP 当前地区码（支持 Cloudflare、AWS CloudFront、Fastly、Gcore、CDN77、Bunny 等 CDN）并显示出来。
 
     -httping
@@ -303,10 +304,16 @@ https://github.com/masgzy/CloudflareST
         例如：HTTPing 延迟测速过程中，因为 HTTP 状态码不符合或测速地址有问题或超时等原因而终止测速
         例如：下载测速过程中，因为下载测速地址有问题（被阻断、403状态码、超时）等原因而终止测速（导致显示 0.00）
     -v
-        打印程序版本 + 检查版本更新；仅当远端版本比当前新时才提示更新（避免本地较新被要求降级），
-        发现新版本时询问 Y/n，确认后自动从
-        https://github.com/masgzy/CloudflareST/releases/latest/download/cfst_系统_架构.<ext>
-        下载并替换当前二进制（Windows 走 .new + 脚本完成覆盖并自动重启）
+        打印程序版本 + 检查版本更新；仅当远端版本比当前新时才提示更新（避免本地较新被要求降级）。
+        发现新版本时：直接回车 = 跳过更新，输入 y 并回车才会更新（安全默认）。
+        更新包默认经加速代理下载（更新前会明确提示代理地址；可用环境变量 CFST_GITHUB_PROXY
+        更换代理或设 off 直连 GitHub），完整性通过直连 GitHub 获取的 SHA256SUMS 独立校验，
+        校验不匹配一律中止、绝不覆盖本地程序。每次更新会在程序同目录的 cfst_update.log
+        留下一行审计记录（时间、版本变更、下载信道、校验方式）。
+        环境变量 CFST_UPDATE_INSECURE=1 可跳过校验（不推荐，会在日志中永久留痕），
+        确认后自动从 https://github.com/masgzy/CloudflareST/releases/latest/download/cfst_系统_架构.<ext>
+        下载并替换当前二进制（Windows 走 .new + 脚本完成覆盖并自动重启；
+        程序所在目录对其他用户可写时会拒绝自动更新以防篡改，请改为手动下载）
     -h
         打印帮助说明
 ```

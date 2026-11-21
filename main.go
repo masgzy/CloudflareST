@@ -350,7 +350,7 @@ func main() {
 	// 首次运行检测，输出 license 内容
 	checkFirstRun()
 
-	task.InitRandSeed()     // 置随机数种子
+	// 随机源已统一 crypto/rand（B-3），无需再显式播种
 	task.ValidateBindIntf() // 验证绑定接口参数是否有效
 
 	fmt.Printf("\x1b[34;1m# CloudflareST\x1b[0m %s\n", version)
@@ -378,7 +378,8 @@ func main() {
 			}
 			time.Sleep(watchdog)
 			utils.Warn("结算超时，强制退出（结果可能未完整写入）。")
-			os.Exit(0)
+			// 退出码 2：超时兜底与正常完成（0）区分开，脚本调用方可感知
+			os.Exit(2)
 		}()
 	}
 
@@ -393,9 +394,15 @@ func main() {
 	pingData = task.TestGetColo(pingData)
 	// 开始下载测速
 	speedData := task.TestDownloadSpeed(pingData)
-	utils.ExportCsv(speedData) // 输出文件
-	speedData.Print()          // 打印结果
-	endPrint()                 // 根据情况选择退出方式（针对 Windows）
+	// 输出文件；失败不终止进程（B-4）：测速结果仍完整打印在终端不丢失，
+	// 仅以非零退出码让脚本调用方感知写文件失败
+	csvErr := utils.ExportCsv(speedData)
+	speedData.Print() // 打印结果
+	endPrint()        // 根据情况选择退出方式（针对 Windows）
+	if csvErr != nil {
+		utils.Error("%v", csvErr)
+		os.Exit(1)
+	}
 }
 
 // 根据情况选择退出方式（针对 Windows）

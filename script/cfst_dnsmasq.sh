@@ -38,7 +38,7 @@ _UPDATE() {
 	# 需要测速 IPv6 请取消注释
 	#echo -e "最优 IPv6 IP 为 ${BESTIP_IPV6}\n"
 
-    [[ -f cloudflare.conf ]] && rm cloudflare.conf
+    [[ -f cloudflare.conf ]] && rm -- cloudflare.conf
 
     cat site.conf | while read domain
     do
@@ -48,7 +48,7 @@ _UPDATE() {
 		fi
     done
 
-    [[ -f /etc/dnsmasq.d/cloudflare.conf ]] && rm /etc/dnsmasq.d/cloudflare.conf
+    [[ -f /etc/dnsmasq.d/cloudflare.conf ]] && rm -- /etc/dnsmasq.d/cloudflare.conf
     cp cloudflare.conf /etc/dnsmasq.d/cloudflare.conf
     systemctl restart dnsmasq.service
 }

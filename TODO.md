@@ -48,6 +48,26 @@
   - 更新确认交互反转为安全默认：直接回车 = 不更新，输入 y 才执行（原为回车即同意）
   - 更新前明示下载信道（代理地址/直连）；`CFST_UPDATE_INSECURE=1` 可显式跳过校验（不推荐）
 
+- [x] **外部安全审计二轮修复（S-2/B-1~B-4/I-2~I-5）**（v2.3.5-mod-3.7 完成）
+  - S-2 更新替换二进制加固：临时文件 O_EXCL 创建（防预置符号链接）、所在目录世界可写时
+    拒绝自动更新、写入 fsync 后再原子 rename；Windows 暂存路径同样 O_EXCL
+  - S-1（方案 B）：保留默认加速代理（大陆开箱可用），新增 cfst_update.log 更新审计日志
+    （时间/版本变更/下载信道/校验方式，CFST_UPDATE_INSECURE 跳过校验时永久留痕）
+  - B-1 下载测速"所需数量"改局部变量，不再改写 -dn 绑定的全局 TestCount（库语义）
+  - B-2 请求失败（速度 0，如 403 拦截）不再被计入"成功"（此前 MinSpeed=0 时 1|0 与
+    403 告警矛盾，且会提前凑数退出把不可用 IP 当可用）
+  - B-4 parseCIDR/ExportCsv 去 Fatal 化：非法 IP 段报错带文件名+行号；结果文件写失败
+    不再丢结果（照常打印终端，非零退出码）；-timeout 超时兜底退出码 0→2
+  - I-1 403 告警增强：被拦截占比过半时直接提示"该地址对当前网络环境大概率不可用"
+    （默认下载地址保留 Parallels，大陆实测正常；保留与上游一致）
+  - I-2 脚本加固：hosts 替换前校验新旧 IP 格式 + sed 引号/| 分隔符；Cloudflare/DNSPod
+    API 凭据改经 curl --config/stdin 传递（不进 ps 可见的 argv）；rm 加 --
+  - I-4 Windows 更新脚本：等待循环加 60 次上限 + 路径中 % 字符转义
+  - B-3 采样随机源统一 crypto/rand（randIPEndWith/chooseIPv4Counted），删除 rand.Seed
+    及其 GODEBUG 兼容注释（go1.18 老工具链下也不再依赖播种行为）
+  - I-5 CSV 输出公式前缀防御（=/+/-/@ 前置单引号，IP/地区码两列）
+  - I-3 死代码清理：GetInterfaceIPs / AssetNameWithOld / CurrentOSArch / Bar.Grow / Bar.SetPrefix
+
 ## 中优先级
 
 - [x] **结果表格升级为框线样式（B8 完整版）**（v2.3.5-mod-3.3 完成）

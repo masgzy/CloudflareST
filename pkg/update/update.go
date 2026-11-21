@@ -94,6 +94,12 @@ func ProxyPrefix() string {
 // LatestVersion 远端 version.txt 的内容（去除空白）
 var LatestVersion string
 
+// localVersion 检查更新时的本地版本号（CheckUpdate 记录，供更新审计日志使用）
+var localVersion string
+
+// lastVerifyMode 最近一次更新包的校验方式（"sha256" / "insecure-skip"），供更新审计日志使用
+var lastVerifyMode string
+
 // versionAPIURL 远端版本号地址（GitHub raw 直连地址）
 const versionAPIURL = "https://github.com/masgzy/CloudflareST/raw/main/version.txt"
 
@@ -127,6 +133,7 @@ type UpdateInfo struct {
 // 仅接受 HTTP 200 且内容形如 "vX.Y.Z..." 的响应，
 // 避免把代理错误页当成版本号，也避免把网络失败误报成"已是最新"。
 func CheckUpdate(currentVersion string) (CheckStatus, error) {
+	localVersion = currentVersion
 	client := &http.Client{Timeout: 10 * time.Second}
 
 	// 构造候选 URL：代理版在前，直连版兜底（CFST_GITHUB_PROXY=off 时仅直连）
@@ -350,6 +357,7 @@ func fetchChecksums(client *http.Client, asset string) (string, error) {
 //   - CFST_UPDATE_INSECURE=1 可显式跳过（会打印醒目警告，不推荐）。
 func verifyChecksum(archivePath, asset string) error {
 	if insecureUpdateEnabled() {
+		lastVerifyMode = "insecure-skip"
 		utils.Warn("已按 CFST_UPDATE_INSECURE=1 跳过更新包校验和验证：更新包经第三方代理下载且未经校验，存在被篡改风险！")
 		return nil
 	}
@@ -367,6 +375,7 @@ func verifyChecksum(archivePath, asset string) error {
 	if !strings.EqualFold(actual, expected) {
 		return fmt.Errorf("更新包校验和不匹配！期望 %s，实际 %s，下载可能被篡改或损坏，已中止更新", expected, actual)
 	}
+	lastVerifyMode = "sha256"
 	fmt.Println("更新包校验和验证通过 (SHA256 OK)。")
 	return nil
 }
@@ -388,6 +397,14 @@ func PerformUpdate(ctx context.Context) error {
 		return err
 	}
 	downloadURL := resolveURL(rawURL)
+
+	// POSIX 平台：可执行文件所在目录世界可写时提前拒绝（S-2），避免下载完成后才失败
+	if !platform.IsWindows() {
+		if exe, err := os.Executable(); err == nil && isWorldWritableDir(filepath.Dir(exe)) {
+			return fmt.Errorf("可执行文件所在目录 %s 对其他用户可写，为防篡改已拒绝自动更新，请手动更新"+
+				"（https://github.com/masgzy/CloudflareST/releases/latest）", filepath.Dir(exe))
+		}
+	}
 
 	fmt.Printf("正在下载 %s ...\n", downloadURL)
 
@@ -428,7 +445,11 @@ func PerformUpdate(ctx context.Context) error {
 	if platform.IsWindows() {
 		return scheduleWindowsReplace(exe, newBinary)
 	}
-	return replaceBinary(exe, newBinary)
+	if err := replaceBinary(exe, newBinary); err != nil {
+		return err
+	}
+	appendUpdateLog(exe, localVersion, LatestVersion)
+	return nil
 }
 
 func downloadFile(ctx context.Context, url, dst string) error {
@@ -597,17 +618,94 @@ func findFile(root, name string) (string, error) {
 	return found, nil
 }
 
-// replaceBinary 直接覆盖当前二进制（POSIX）
+// isWorldWritableDir 目录是否存在且对其他用户可写。
+// 此类目录（如 /tmp、0777 的安装目录）存在本地替换竞争面，自动更新一律拒绝（S-2）。
+func isWorldWritableDir(dir string) bool {
+	info, err := os.Stat(dir)
+	return err == nil && info.Mode().Perm()&0o002 != 0
+}
+
+// writeNewFileExclusive 以 O_EXCL 创建并写入目标文件（S-2）。
+// O_EXCL 挡住目录内预置的同名符号链接（os.WriteFile 会跟随符号链接写入攻击者指定路径）；
+// 若目标已是普通文件（上次更新中断的残留）则清理后重试一次，其余情况一律报错。
+// 写入后 fsync 落盘再返回，避免断电产生半写文件。
+func writeNewFileExclusive(path string, data []byte) error {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o755)
+	if err != nil {
+		if info, statErr := os.Lstat(path); statErr == nil && info.Mode().IsRegular() {
+			if rmErr := os.Remove(path); rmErr == nil {
+				f, err = os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o755)
+			}
+		}
+		if err != nil {
+			return fmt.Errorf("创建临时文件 [%s] 失败: %w", path, err)
+		}
+	}
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		os.Remove(path)
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		os.Remove(path)
+		return err
+	}
+	return f.Close()
+}
+
+// appendUpdateLog 在可执行文件同目录的 cfst_update.log 追加一行更新审计记录：
+// 时间、版本变更、下载信道、校验方式（S-1）。CFST_UPDATE_INSECURE 跳过校验的更新
+// 会在日志中永久留痕（verify=insecure-skip），便于事后核查。
+// 日志写入失败仅提示，不影响更新结果。
+func appendUpdateLog(exePath, fromVer, toVer string) {
+	channel := "direct"
+	if p := ProxyPrefix(); p != "" {
+		channel = "proxy:" + p
+	}
+	verify := lastVerifyMode
+	if verify == "" {
+		verify = "unknown"
+	}
+	if fromVer == "" {
+		fromVer = "?"
+	}
+	if toVer == "" {
+		toVer = "?"
+	}
+	entry := fmt.Sprintf("%s\t%s -> %s\t%s\t%s\n",
+		time.Now().Format("2006-01-02 15:04:05"), fromVer, toVer, channel, verify)
+	logPath := filepath.Join(filepath.Dir(exePath), "cfst_update.log")
+	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		fmt.Printf("（提示）无法写入更新日志 %s: %v\n", logPath, err)
+		return
+	}
+	defer f.Close()
+	if _, err := f.WriteString(entry); err != nil {
+		fmt.Printf("（提示）无法写入更新日志 %s: %v\n", logPath, err)
+		return
+	}
+	fmt.Printf("更新记录已写入 %s\n", logPath)
+}
+
+// replaceBinary 直接覆盖当前二进制（POSIX）。
+// 安全约束（S-2）：可执行文件所在目录对其他用户可写时拒绝自动更新
+// （此类目录下本地攻击者可预置符号链接或直接替换文件），提示用户改为手动更新。
 func replaceBinary(current, new string) error {
 	data, err := os.ReadFile(new)
 	if err != nil {
 		return err
 	}
-	// 写入临时文件后原子 rename
+	if isWorldWritableDir(filepath.Dir(current)) {
+		return fmt.Errorf("可执行文件所在目录 %s 对其他用户可写，为防篡改已拒绝自动更新，请手动更新"+
+			"（https://github.com/masgzy/CloudflareST/releases/latest）", filepath.Dir(current))
+	}
 	tmp := current + ".new"
-	if err := os.WriteFile(tmp, data, 0o755); err != nil {
+	if err := writeNewFileExclusive(tmp, data); err != nil {
 		return err
 	}
+	// 写入临时文件并落盘后原子 rename
 	if err := os.Rename(tmp, current); err != nil {
 		os.Remove(tmp)
 		return err
@@ -625,31 +723,42 @@ func scheduleWindowsReplace(current, new string) error {
 		return err
 	}
 	stagePath := current + ".new"
-	if err := os.WriteFile(stagePath, data, 0o755); err != nil {
+	// 与 POSIX 路径一致：O_EXCL 创建（S-2），防目录内预置符号链接被跟随写入
+	if err := writeNewFileExclusive(stagePath, data); err != nil {
 		return err
 	}
 
 	batPath := filepath.Join(filepath.Dir(current), "cfst_update.bat")
-	// 注意：批处理中 % 需转义为 %%，路径用引号包裹
-	// 批处理脚本仅使用 ASCII 字符，避免 cmd.exe 默认 GBK 编码导致中文乱码
+	// 注意：批处理中 % 需转义为 %%，路径用引号包裹；路径自身含 % 时同样转义（I-4）。
+	// 批处理脚本仅使用 ASCII 字符，避免 cmd.exe 默认 GBK 编码导致中文乱码。
+	// 等待循环带 60 次上限（I-4）：目标文件被杀毒/索引服务长期锁定时不再无限重试。
 	script := fmt.Sprintf(`@echo off
 setlocal
 set "TARGET=%s"
 set "STAGED=%s"
 echo Updating CloudflareST, please wait...
+set /a TRIES=0
 :wait
+if %%TRIES%% GEQ 60 goto fail
 ping -n 2 127.0.0.1 >nul
 del /f /q "%%TARGET%%" 2>nul
 move /y "%%STAGED%%" "%%TARGET%%" >nul
-if errorlevel 1 goto wait
+if errorlevel 1 (set /a TRIES+=1 & goto wait)
 echo Update complete, restarting...
 start "" "%%TARGET%%"
 del /f /q "%%~f0"
 endlocal
-`, current, stagePath)
+exit /b 0
+:fail
+echo Update FAILED: target file is still locked after 60 tries.
+echo Please close programs using it, then run cfst_update.bat again.
+pause
+exit /b 1
+`, strings.ReplaceAll(current, "%", "%%"), strings.ReplaceAll(stagePath, "%", "%%"))
 	if err := os.WriteFile(batPath, []byte(script), 0o644); err != nil {
 		return err
 	}
+	appendUpdateLog(current, localVersion, LatestVersion)
 	fmt.Printf("已暂存新版本到 %s\n", stagePath)
 	fmt.Println("按回车键关闭当前程序并完成更新（将自动重启）...")
 	_, _ = bufio.NewReader(os.Stdin).ReadString('\n') // 读到 EOF（Ctrl+C/D）同样继续更新流程

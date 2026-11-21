@@ -23,7 +23,6 @@ package utils
 import (
 	"encoding/csv"
 	"fmt"
-	"log"
 	"math"
 	"net"
 	"os"
@@ -96,11 +95,21 @@ func (cf *CloudflareIPData) getLossRate() float32 {
 	return cf.lossRate
 }
 
+// sanitizeCSVField 防御 CSV 公式注入（I-5）：以 =/+/-/@ 开头的字段在 Excel 打开时
+// 可能被解释为公式。当前各列均为 IP/数字/三字码，无实际注入面，属前瞻性防御
+// （如未来把任意远端响应头值写入 CSV，此函数即生效）。
+func sanitizeCSVField(s string) string {
+	if len(s) > 0 && (s[0] == '=' || s[0] == '+' || s[0] == '-' || s[0] == '@') {
+		return "'" + s
+	}
+	return s
+}
+
 // 拼接 IP 与端口：没有端口时只返回 IP
 // （保留此包装供 toString 使用，逻辑已移至 PingData.formatIPWithPort）
 func (cf *CloudflareIPData) toString() []string {
 	result := make([]string, 7)
-	result[0] = cf.PingData.formatIPWithPort()
+	result[0] = sanitizeCSVField(cf.PingData.formatIPWithPort())
 	result[1] = strconv.Itoa(cf.Sended)
 	result[2] = strconv.Itoa(cf.Received)
 	result[3] = strconv.FormatFloat(float64(cf.getLossRate()), 'f', 2, 32)
@@ -110,28 +119,31 @@ func (cf *CloudflareIPData) toString() []string {
 	if cf.Colo == "" {
 		result[6] = "N/A"
 	} else {
-		result[6] = cf.Colo
+		result[6] = sanitizeCSVField(cf.Colo)
 	}
 	return result
 }
 
-func ExportCsv(data []CloudflareIPData) {
+func ExportCsv(data []CloudflareIPData) error {
 	if noOutput() || len(data) == 0 {
-		return
+		return nil
 	}
 	fp, err := os.Create(Output)
 	if err != nil {
-		log.Fatalf("创建文件[%s]失败：%v", Output, err)
+		// 不再直接终止进程（B-4）：测速结果即将打印在终端，由调用方决定如何处理
+		return fmt.Errorf("创建结果文件 [%s] 失败：%v（测速结果已打印在终端，未丢失）", Output, err)
 	}
 	defer fp.Close()
 	// 写入 UTF-8 BOM，确保 Excel 直接打开时中文表头不乱码
 	if _, err := fp.WriteString("\xEF\xBB\xBF"); err != nil {
-		log.Fatalf("写入文件[%s]失败：%v", Output, err)
+		return fmt.Errorf("写入结果文件 [%s] 失败：%v（测速结果已打印在终端，未丢失）", Output, err)
 	}
 	w := csv.NewWriter(fp) //创建一个新的写入文件流
 	_ = w.Write([]string{"IP 地址", "已发送", "已接收", "丢包率", "平均延迟", "下载速度(MB/s)", "地区码"})
 	_ = w.WriteAll(convertToString(data))
 	w.Flush()
+	fmt.Printf("\n完整测速结果已写入 %v 文件，可使用记事本/表格软件查看。\n", Output)
+	return nil
 }
 
 func convertToString(data []CloudflareIPData) [][]string {
@@ -321,7 +333,4 @@ func (s DownloadSpeedSet) Print() {
 		fmt.Println(tableLine(row, false))
 	}
 	fmt.Println(hline("└", "┴", "┘"))
-	if !noOutput() {
-		fmt.Printf("\n完整测速结果已写入 %v 文件，可使用记事本/表格软件查看。\n", Output)
-	}
 }

@@ -117,11 +117,14 @@ func TestDownloadSpeed(ipSet utils.PingDelaySet) (speedSet utils.DownloadSpeedSe
 	if len(ipSet) < TestCount || MinSpeed > 0 { // 如果延迟测速并过滤后的 IP 数组长度(IP数量) 小于 下载测速数量(-dn），（即 -dn 预期数量是不够的），或者指定了 下载测速下限 (-sl) 条件（这就可能要全部下载测速一遍，直到找齐预期数量或测完为止），则 等待下载测速的队列数量 修正为 IP 数量
 		testNum = len(ipSet)
 	}
-	if testNum < TestCount { // 如果 等待下载测速的队列数量 小于 下载测速数量(-dn），（显然 -dn 预期数量是不够的），所以 下载测速数量(-dn）修正为 等待下载测速的队列数量
-		TestCount = testNum
+	// 所需数量改用局部变量（B-1）：TestCount 是 -dn 的绑定目标（包级全局），
+	// 库调用方（task.TestDownloadSpeed 为导出函数）在进程内多次调用时不应被第一次调用污染
+	needCount := TestCount
+	if testNum < needCount { // 如果 等待下载测速的队列数量 小于 下载测速数量(-dn），（显然 -dn 预期数量是不够的），所以 所需数量 修正为 等待下载测速的队列数量
+		needCount = testNum
 	}
 
-	fmt.Printf("开始下载测速（下限：%.2f MB/s, 所需：%d, 队列：%d）\n", MinSpeed, TestCount, testNum)
+	fmt.Printf("开始下载测速（下限：%.2f MB/s, 所需：%d, 队列：%d）\n", MinSpeed, needCount, testNum)
 
 	// 创建进度跟踪器
 	progress := &DownloadProgress{}
@@ -166,7 +169,7 @@ func TestDownloadSpeed(ipSet utils.PingDelaySet) (speedSet utils.DownloadSpeedSe
 
 	for i := 0; i < testNum; i++ {
 		// 检查是否已经凑够数量或全局超时
-		if int(atomic.LoadInt32(&progress.successCount)) >= TestCount || atomic.LoadInt32(&GlobalEarlyStop) == 1 {
+		if int(atomic.LoadInt32(&progress.successCount)) >= needCount || atomic.LoadInt32(&GlobalEarlyStop) == 1 {
 			break
 		}
 
@@ -176,8 +179,11 @@ func TestDownloadSpeed(ipSet utils.PingDelaySet) (speedSet utils.DownloadSpeedSe
 			ipSet[i].Colo = colo
 		}
 
-		// 在每个 IP 下载测速后，以 [下载速度下限] 条件过滤结果
-		if speed >= MinSpeed*1024*1024 {
+		// 在每个 IP 下载测速后，以 [下载速度下限] 条件过滤结果。
+		// speed<=0（请求失败/被 403 拦截）绝不能计入成功（B-2）：MinSpeed=0 时
+		// 0.0>=0 恒成立，此前 403 会被统计为"成功"（进度条显示 1|0 与 403 告警自相矛盾，
+		// 且会让上方凑数终止条件提前满足、把不可用 IP 当可用而提前收工）。
+		if speed > 0 && speed >= MinSpeed*1024*1024 {
 			atomic.AddInt32(&progress.successCount, 1)
 			speedSet = append(speedSet, ipSet[i]) // 高于下载速度下限时，添加到新数组中
 		} else {
@@ -245,6 +251,10 @@ func warnBadStatusCode(total int) {
 	}
 	utils.Warn("检测到 %d/%d 次下载测速返回 HTTP %d（非 200）：测速地址可能已失效或被防护拦截，"+
 		"若速度结果均为 0，请用 [-durl] 更换下载测速地址。", n, total, atomic.LoadInt32(&lastBadStatusCode))
+	// 过半请求被拦截：基本可判定该地址对当前网络环境不可用，直接给出结论（I-1）
+	if total > 0 && float64(n)/float64(total) > 0.5 {
+		utils.Warn("超过半数下载测速请求被拦截（%d/%d），当前下载测速地址对您的网络环境大概率不可用，建议立即用 [-durl] 更换。", n, total)
+	}
 }
 
 func getDialContext(ip *net.IPAddr) func(ctx context.Context, network, address string) (net.Conn, error) {

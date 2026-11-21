@@ -370,18 +370,6 @@ func getTerminalWidth() int {
 	return width
 }
 
-// Grow 增加进度
-func (b *Bar) Grow(num int, myStrVal string) {
-	if b.inner.isCompleted() || IsProgressStopped() {
-		return
-	}
-
-	b.inner.textMu.Lock()
-	b.inner.text.pos += num
-	b.inner.text.prefix = myStrVal
-	b.inner.textMu.Unlock()
-}
-
 // Update 更新进度和消息
 func (b *Bar) Update(pos int, msg string, prefix string) {
 	if b.inner.isCompleted() || IsProgressStopped() {
@@ -391,17 +379,6 @@ func (b *Bar) Update(pos int, msg string, prefix string) {
 	b.inner.textMu.Lock()
 	b.inner.text.pos = pos
 	b.inner.text.msg = msg
-	b.inner.text.prefix = prefix
-	b.inner.textMu.Unlock()
-}
-
-// SetPrefix 设置前缀
-func (b *Bar) SetPrefix(prefix string) {
-	if b.inner.isCompleted() || IsProgressStopped() {
-		return
-	}
-
-	b.inner.textMu.Lock()
 	b.inner.text.prefix = prefix
 	b.inner.textMu.Unlock()
 }

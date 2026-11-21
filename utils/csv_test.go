@@ -121,3 +121,34 @@ func BenchmarkZScoreSort100(b *testing.B) {
 		data.Sort()
 	}
 }
+
+// I-5：CSV 公式前缀防御
+func TestSanitizeCSVField(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"=1+1", "'=1+1"},
+		{"+SUM(A1)", "'+SUM(A1)"},
+		{"-2", "'-2"},
+		{"@cmd", "'@cmd"},
+		{"1.1.1.1", "1.1.1.1"},
+		{"HKG", "HKG"},
+		{"", ""},
+		{"N/A", "N/A"},
+	}
+	for _, c := range cases {
+		if got := sanitizeCSVField(c.in); got != c.want {
+			t.Errorf("sanitizeCSVField(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+// B-4：ExportCsv 写文件失败返回 error 而非 log.Fatal 终止进程
+func TestExportCsvWriteError(t *testing.T) {
+	old := Output
+	defer func() { Output = old }()
+
+	Output = "/nonexistent-dir-cfst-test/result.csv"
+	ips := DownloadSpeedSet{makeData("1.1.1.1", 4, 4, time.Millisecond, 1)}
+	if err := ExportCsv(ips); err == nil {
+		t.Error("ExportCsv 写入不可写路径期望返回 error，实际无错")
+	}
+}

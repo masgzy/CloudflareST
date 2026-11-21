@@ -47,15 +47,6 @@ func AssetName() (string, error) {
 	return fmt.Sprintf("cfst_%s_%s", osName, archName), nil
 }
 
-// AssetNameWithOld 用于下载 *_old.* 老系统资产。
-func AssetNameWithOld() (string, error) {
-	base, err := AssetName()
-	if err != nil {
-		return "", err
-	}
-	return base + "_old", nil
-}
-
 // Ext 根据操作系统返回压缩包扩展名：windows=zip，其它=tar.gz
 func Ext(goos string) string {
 	if goos == "windows" {
@@ -128,10 +119,4 @@ func DownloadURL() (string, error) {
 // IsWindows 便捷判断：是否在 Windows 上运行（更新逻辑要写 .new 文件 + 外部脚本）。
 func IsWindows() bool {
 	return runtime.GOOS == "windows"
-}
-
-// CurrentOSArch 调试辅助：返回 runtime 实际值，便于日志输出。
-func CurrentOSArch() string {
-	parts := []string{runtime.GOOS, runtime.GOARCH}
-	return strings.Join(parts, "/")
 }

@@ -32,7 +32,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/masgzy/CloudflareST/utils"
 )
@@ -67,22 +66,29 @@ func ValidateBindIntf() {
 	}
 }
 
-func InitRandSeed() {
-	// Go 1.20+ 已自动播种全局 rand；Go 1.24 起 Seed 正式变为 no-op，
-	// 但 GODEBUG 兼容行为跟随 go.mod 的 go 指令（本项目为 go 1.18），
-	// 因此即使使用 Go 1.22~1.24 工具链编译，Seed 仍保持有效，不会影响 _old 老平台构建。
-	rand.Seed(time.Now().UnixNano())
-}
-
 func isIPv4(ip string) bool {
 	return strings.Contains(ip, ".")
+}
+
+// randUint64n 返回 [0, n) 内的随机数：统一使用 crypto/rand（与 chooseIPv6Counted 一致），
+// 不再依赖 rand.Seed 的 GODEBUG 兼容行为（B-3；go.mod 为 go 1.18，老工具链下
+// math/rand 无自动播种，跨运行采样序列固定）。crypto/rand 极端不可用时回退 math/rand。
+func randUint64n(n uint64) uint64 {
+	if n <= 1 {
+		return 0
+	}
+	v, err := crand.Int(crand.Reader, new(big.Int).SetUint64(n))
+	if err != nil {
+		return rand.Uint64() % n
+	}
+	return v.Uint64()
 }
 
 func randIPEndWith(num byte) byte {
 	if num == 0 { // 对于 /32 这种单独的 IP
 		return byte(0)
 	}
-	return byte(rand.Intn(int(num)))
+	return byte(randUint64n(uint64(num)))
 }
 
 var (
@@ -151,15 +157,31 @@ func (r *IPRanges) fixIP(ip string) (cleanIP string, port int) {
 	return
 }
 
-// 解析 IP 段，获得 IP、IP 范围、子网掩码，以及端口
-func (r *IPRanges) parseCIDR(ip string) {
-	var err error
+// 解析 IP 段，获得 IP、IP 范围、子网掩码，以及端口。
+// 非法输入返回 error 而非直接退出进程（B-4），由调用方决定处理方式；
+// CLI 装配层的快速失败入口见 parseSourceCIDR。
+func (r *IPRanges) parseCIDR(ip string) error {
 	cleanIP, port := r.fixIP(ip)
-	if r.firstIP, r.ipNet, err = net.ParseCIDR(cleanIP); err != nil {
-		log.Fatalln("ParseCIDR err", ip, err)
+	firstIP, ipNet, err := net.ParseCIDR(cleanIP)
+	if err != nil {
+		return fmt.Errorf("无效 IP 段 [%s]: %v", ip, err)
 	}
+	r.firstIP, r.ipNet = firstIP, ipNet
 	// 存储当前 CIDR 区块对应的端口（后续 appendIP 时使用）
 	r.currentPort = port
+	return nil
+}
+
+// parseSourceCIDR 解析一个 IP 来源条目，失败时按来源附加上下文后终止（CLI 入口，B-4）：
+// 来自文件时给出文件名与物理行号（用户无需在几千行里自己找错在哪），
+// 来自 -ip 参数时给出原始条目。
+func (r *IPRanges) parseSourceCIDR(source ipSourceEntry) {
+	if err := r.parseCIDR(source.ipPart); err != nil {
+		if source.line > 0 {
+			log.Fatalf("IP 数据文件 [%s] 第 %d 行无效: %v", IPFile, source.line, err)
+		}
+		log.Fatalf("[-ip] 参数中的 IP 段 [%s] 无效: %v", source.ipPart, err)
+	}
 }
 
 func (r *IPRanges) appendIPv4(d byte) {
@@ -244,6 +266,7 @@ func (r *IPRanges) chooseIPv6() {
 type ipSourceEntry struct {
 	ipPart string // 剥离 "=数量" 后的 IP/CIDR 部分（可能仍含端口）
 	count  int    // 用户指定的采样数量（CIDR=数量 语法），0 表示未指定
+	line   int    // 来源为文件时的物理行号（1 起）；来自 -ip 参数时为 0
 }
 
 // cleanIPSourceLine 清理单个来源条目：去首尾空白，跳过空行与注释行（# 或 // 开头）
@@ -282,6 +305,7 @@ func parseSourceEntry(raw string) (ipSourceEntry, error) {
 // 去重按清理后的原始文本匹配（保留首次出现顺序）
 func collectIPSources() ([]ipSourceEntry, error) {
 	var lines []string
+	var lineNos []int // 文件来源时的物理行号（与 lines 平行）；-ip 参数来源时为空
 	if IPText != "" { // 从参数中获取 IP 段数据（英文逗号分隔）
 		lines = strings.Split(IPText, ",")
 	} else { // 从文件中获取 IP 段数据
@@ -297,8 +321,11 @@ func collectIPSources() ([]ipSourceEntry, error) {
 		}
 		defer file.Close()
 		scanner := bufio.NewScanner(file)
-		for scanner.Scan() { // 循环遍历文件每一行
+		lineNo := 0
+		for scanner.Scan() { // 循环遍历文件每一行（记录物理行号，报错时可定位，B-4）
+			lineNo++
 			lines = append(lines, scanner.Text())
+			lineNos = append(lineNos, lineNo)
 		}
 		if err := scanner.Err(); err != nil {
 			return nil, fmt.Errorf("读取 IP 数据文件 [%s] 失败：%v", IPFile, err)
@@ -307,7 +334,7 @@ func collectIPSources() ([]ipSourceEntry, error) {
 
 	seen := make(map[string]struct{}, len(lines))
 	entries := make([]ipSourceEntry, 0, len(lines))
-	for _, line := range lines {
+	for i, line := range lines {
 		clean := cleanIPSourceLine(line)
 		if clean == "" { // 跳过空行、注释行（即开头、结尾或连续多个 ,, 的情况）
 			continue
@@ -319,6 +346,9 @@ func collectIPSources() ([]ipSourceEntry, error) {
 		entry, err := parseSourceEntry(clean)
 		if err != nil {
 			return nil, err
+		}
+		if i < len(lineNos) {
+			entry.line = lineNos[i]
 		}
 		entries = append(entries, entry)
 	}
@@ -345,10 +375,10 @@ func (r *IPRanges) chooseIPv4Counted(count int) {
 		var off uint64
 		if i == count-1 { // 最后一个区间
 			if lastSize > 1 {
-				off = rand.Uint64() % lastSize
+				off = randUint64n(lastSize)
 			}
 		} else if interval > 1 {
-			off = rand.Uint64() % interval
+			off = randUint64n(interval)
 		}
 		ip := uint64(start) + uint64(i)*interval + off // 恒 ≤ 网段末尾地址，不会溢出
 		r.appendIP(net.IPv4(byte(ip>>24), byte(ip>>16), byte(ip>>8), byte(ip)))
@@ -463,7 +493,7 @@ func loadIPRanges() []*net.IPAddr {
 		needQuota := make([]bool, len(sources))
 		tmp := newIPRanges() // 仅用于解析掩码/容量，不生成 IP
 		for i, source := range sources {
-			tmp.parseCIDR(source.ipPart)
+			tmp.parseSourceCIDR(source)
 			capacities[i] = srcCapacity(tmp.ipNet, isIPv4(source.ipPart))
 			needQuota[i] = source.count == 0
 		}
@@ -472,7 +502,7 @@ func loadIPRanges() []*net.IPAddr {
 			utils.Tip("[-qn] 指定数量超过 IP 段地址总数，将测试全部可生成的 IP。")
 		}
 		for i, source := range sources {
-			ranges.parseCIDR(source.ipPart)
+			ranges.parseSourceCIDR(source)
 			count := source.count // 显式指定的采样数量优先
 			if needQuota[i] {
 				count = quotas[i]
@@ -489,8 +519,8 @@ func loadIPRanges() []*net.IPAddr {
 		return ranges.ips
 	}
 	for _, source := range sources {
-		ranges.parseCIDR(source.ipPart) // 解析 IP 段，获得 IP、IP 范围、子网掩码、端口
-		if source.count > 0 {           // 指定了采样数量（CIDR=数量），均匀分区间采样
+		ranges.parseSourceCIDR(source) // 解析 IP 段，获得 IP、IP 范围、子网掩码、端口（失败带行号上下文）
+		if source.count > 0 {          // 指定了采样数量（CIDR=数量），均匀分区间采样
 			if isIPv4(source.ipPart) {
 				ranges.chooseIPv4Counted(source.count)
 			} else {

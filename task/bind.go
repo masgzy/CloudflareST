@@ -122,15 +122,6 @@ func ValidateBindInterface(ifaceParam string) error {
 	return err
 }
 
-// GetInterfaceIPs 获取接口的 IP 信息（用于 IP 绑定模式）
-func GetInterfaceIPs(ifaceParam string) (*InterfaceIps, error) {
-	result, err := processInterfaceParam(ifaceParam)
-	if err != nil {
-		return nil, err
-	}
-	return result.InterfaceIPs, nil
-}
-
 // getBindInterfaceControl 返回一个网络控制函数，用于绑定到指定的网络接口
 // 支持 Linux、macOS、Windows 三平台
 // 如果接口不存在，返回的函数会在调用时报错

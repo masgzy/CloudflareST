@@ -46,16 +46,14 @@ _UPDATE() {
 	# 如果 EMAIL 变量是空的，那么就代表要使用 API 令牌方式
 	if [[ -n "${EMAIL}" ]]; then
 		# API 密钥方式（全局权限）
+		# 凭据经 curl 配置文件（进程替换）传递，避免出现在命令行参数中被同机其他用户经 ps 看到（I-2）
 		curl -X PUT "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/dns_records/${DNS_RECORDS_ID}" \
-			-H "X-Auth-Email: ${EMAIL}" \
-			-H "X-Auth-Key: ${KEY}" \
-			-H "Content-Type: application/json" \
+			--config <(printf 'header = "X-Auth-Email: %s"\nheader = "X-Auth-Key: %s"\nheader = "Content-Type: application/json"\n' "${EMAIL}" "${KEY}") \
 			--data "{\"type\":\"${TYPE}\",\"name\":\"${NAME}\",\"content\":\"${CONTENT}\",\"ttl\":${TTL},\"proxied\":${PROXIED}}"
 	else
-		# API 令牌方式（自定义权限）
+		# API 令牌方式（自定义权限），凭据同样经 --config 传递（I-2）
 		curl -X PUT "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/dns_records/${DNS_RECORDS_ID}" \
-			-H "Authorization: Bearer ${KEY}" \
-			-H "Content-Type: application/json" \
+			--config <(printf 'header = "Authorization: Bearer %s"\nheader = "Content-Type: application/json"\n' "${KEY}") \
 			--data "{\"type\":\"${TYPE}\",\"name\":\"${NAME}\",\"content\":\"${CONTENT}\",\"ttl\":${TTL},\"proxied\":${PROXIED}}"
 	fi
 }

@@ -7,7 +7,7 @@
 # --------------------------------------------------------------
 
 # 清理历史残留
-rm -f result4.csv result6.csv
+rm -f -- result4.csv result6.csv
 # DNSPod API 凭据
 dnspod_token="${API_TOKEN}"
 dnspod_domain="${DOMAIN}"
@@ -20,7 +20,11 @@ dnspod_api_url="https://dnsapi.cn"
 get_record_id() {
     local record_type=$1
     local response
-    response=$(curl -s -X POST -d "login_token=$dnspod_token&format=json&domain=$dnspod_domain&record_type=$record_type" "$dnspod_api_url/Record.List")
+    # 凭据经 stdin（--data @- + heredoc）传递，避免出现在命令行参数中被同机其他用户经 ps 看到（I-2）
+    response=$(curl -s -X POST --data @- "$dnspod_api_url/Record.List" <<DNSEOF
+login_token=$dnspod_token&format=json&domain=$dnspod_domain&record_type=$record_type
+DNSEOF
+)
     local record_id
     record_id=$(echo "$response" | jq -r --arg type "$record_type" '.records[] | select(.type == $type) | .id')
     echo "$record_id"
@@ -31,7 +35,10 @@ create_dns_record() {
     local record_type=$1
     local ip_address=$2
     local response
-    response=$(curl -s -X POST -d "login_token=$dnspod_token&format=json&domain=$dnspod_domain&sub_domain=$dnspod_record&record_type=$record_type&record_line=默认&value=$ip_address" "$dnspod_api_url/Record.Create")
+    response=$(curl -s -X POST --data @- "$dnspod_api_url/Record.Create" <<DNSEOF
+login_token=$dnspod_token&format=json&domain=$dnspod_domain&sub_domain=$dnspod_record&record_type=$record_type&record_line=默认&value=$ip_address
+DNSEOF
+)
     local record_id
     record_id=$(echo "$response" | jq -r '.record.id')
     echo "$record_id"
@@ -42,7 +49,9 @@ update_dns_record() {
     local record_id=$1
     local record_type=$2
     local ip_address=$3
-    curl -s -X POST -d "login_token=$dnspod_token&format=json&domain=$dnspod_domain&record_id=$record_id&sub_domain=$dnspod_record&record_type=$record_type&record_line=默认&value=$ip_address" "$dnspod_api_url/Record.Modify"
+    curl -s -X POST --data @- "$dnspod_api_url/Record.Modify" <<DNSEOF
+login_token=$dnspod_token&format=json&domain=$dnspod_domain&record_id=$record_id&sub_domain=$dnspod_record&record_type=$record_type&record_line=默认&value=$ip_address
+DNSEOF
 }
 
 # 运行 CFST v4

@@ -56,8 +56,19 @@ _UPDATE() {
 	echo "开始备份 Hosts 文件（hosts_backup）..."
 	\cp -f /etc/hosts /etc/hosts_backup
 
+	# 新旧 IP 均做格式校验（I-2）：nowip_hosts.txt 损坏或被写入正则元字符时直接中止，
+	# 避免 sed 表达式被破坏（IP 仅含数字/点/冒号/hex 字母，白名单足够）
+	if [[ ! "${NOWIP}" =~ ^[0-9A-Fa-f:.]+$ ]]; then
+		echo -e "[错误] 旧 IP（${NOWIP}）格式非法，已中止替换 Hosts（请检查 nowip_hosts.txt）！"
+		exit 1
+	fi
+	if [[ ! "${BESTIP}" =~ ^[0-9A-Fa-f:.]+$ ]]; then
+		echo -e "[错误] 新 IP（${BESTIP}）格式非法，已中止替换 Hosts！"
+		exit 1
+	fi
 	echo -e "开始替换..."
-	sed -i 's/'${NOWIP}'/'${BESTIP}'/g' /etc/hosts
+	# 变量加双引号并用 | 分隔符：点号不再被当正则、IP 含 / 时不会破坏表达式（I-2）
+	sed -i "s|${NOWIP}|${BESTIP}|g" /etc/hosts
 	echo -e "完成..."
 }
 
